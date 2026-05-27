@@ -257,7 +257,92 @@ file conventions exactly. Never reference your name or persona inside code.
 
 Director references agents by name in narration: *"Maya is on the card. Jin just shipped the generate route."*
 
-## Pass 5 — Design System Alignment ⏳
+## Pass 5 — Design System Alignment ✅
+
+Inline DESIGN.md (extracted to standalone `DESIGN.md` after Pass 7). Calibrated against OpenAI's visual identity (warm off-white, near-black, generous whitespace, conservative type, sparse accents) **without** copying.
+
+### Type stack
+
+Inter + JetBrains Mono — both free. Söhne (OpenAI's paid choice) is the post-hackathon swap. Inter is the canonical free analog by Rasmus Andersson in the same lineage.
+
+- Display / labels / narration text: **Inter** (variable, 400/500/600)
+- Code (`code_preview`, `diagram`): **JetBrains Mono** (variable, 400/500)
+- Scale: 11 / 12 / 14 / 18 / 24px. No large display sizes — overlay app.
+
+### Color palette (dark-only v1)
+
+| Token | Value | Use |
+|---|---|---|
+| `--surface-base` | `rgba(20, 20, 22, 0.55)` | Glass base behind macOS vibrancy |
+| `--surface-elevated` | `rgba(28, 28, 32, 0.72)` | Canvas cards |
+| `--text-primary` | `#ECECF0` | Default text |
+| `--text-secondary` | `#9B9BA0` | Micro-text, file paths, tags |
+| `--text-tertiary` | `#5E5E62` | Dim hints |
+| `--border-subtle` | `rgba(255,255,255,0.08)` | 0.5px hairlines |
+| `--status-working` | `#58D68D` | Working ring (calm, not neon) |
+| `--status-blocked` | `#E8A95C` | Blocked amber |
+| `--status-thinking` | `#6E94E8` | gpt-5.5 thinking pulse |
+| `--status-done` | `#9B9BA0` | Done (dim neutral) |
+| `--status-error` | `#E07866` | Hard error (warm red) |
+| `--accent-maya` | `#E07856` | Frontend identity (coral) |
+| `--accent-jin` | `#4A9E9C` | Backend identity (teal) |
+| `--accent-cleo` | `#C99550` | Data identity (ochre) |
+| `--accent-wren` | `#9670A0` | Design identity (plum) |
+
+All agent accents ≤70% saturation — readable as names, never confusable with status semantics.
+
+### Motion tokens
+
+| Token | Value | Use |
+|---|---|---|
+| `--spring-default` | stiffness 180, damping 22 | Node spawn, Canvas open |
+| `--spring-snappy` | stiffness 280, damping 26 | Hotkey response, barge-in |
+| `--ease-smooth` | `cubic-bezier(.32, .72, 0, 1)` | Slide animations |
+| `--duration-quick` | 180ms | Fades, micro-feedback |
+| `--duration-base` | 260ms | Strip ↔ Canvas slide |
+| `--duration-canvas-open` | 280ms | Canvas spring expand |
+| `--pulse-dormant` | 1.5s sine | Strip dormant breathing |
+| `--pulse-blocked` | 0.6s staccato | Blocked agent ring |
+
+### Spacing
+
+Base scale: 4 / 8 / 12 / 16 / 24 / 32 px.
+
+### Glass spec
+
+Electron `BrowserWindow`:
+- `vibrancy: 'under-window'`
+- `visualEffectState: 'active'`
+- `transparent: true`
+- `frame: false`
+- `alwaysOnTop: ('floating', 'screen-saver')`
+
+Geometry:
+- Strip corner radius: **14px**
+- Canvas corner radius: **22px**
+- Border: 0.5px solid `--border-subtle`
+- Shadow: `0 8px 32px rgba(0,0,0,0.35), 0 2px 6px rgba(0,0,0,0.25)`
+
+### Iconography
+
+- **Director has no logo on the Strip.** The waveform pulse IS the brand mark.
+- Tray icon: monochrome glyph (vertical pill silhouette with center dot).
+- In-Canvas icons (form fields, buttons): **Lucide** (open-source, calm, consistent stroke).
+
+### Sound palette
+
+| Cue | Specification |
+|---|---|
+| Confirm | 440 Hz + 660 Hz dyad, 80ms decay |
+| Tick (sub-task complete) | 880 Hz pluck, 40ms decay |
+| Escalation | 320 Hz + 480 Hz dyad, 200ms decay, slight upglide |
+| Done (work complete) | Descending 660 → 440 → 330 Hz arpeggio, 400ms |
+| Voice-recognized halo | Ultra-soft 1.2 kHz blip, 60ms |
+
+### Phase-2 swaps
+
+- Söhne family (paid license) replaces Inter / JetBrains Mono once funded
+- Light mode added (vibrancy materials switch to `.popover` light variant)
 
 ## Pass 6 — Responsive & Accessibility ⏳
 
