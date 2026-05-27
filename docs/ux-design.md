@@ -132,7 +132,67 @@ The Realtime layer can query gpt-5.5 for historical recall via the `consult_dire
 
 ---
 
-## Pass 3 — User Journey & Emotional Arc ⏳
+## Pass 3 — User Journey & Emotional Arc ✅
+
+### Storyboard
+
+| Step | User does | User feels |
+|---|---|---|
+| 1. First launch | Opens Director.app | Curious + slightly cautious |
+| 2. First summon | Hits hotkey, says hi | Minor amazement |
+| 3. First brief | Speaks intent | Anticipation |
+| 4. First Canvas | Sees moodboard, picks | Agency *(it listens, doesn't just execute)* |
+| 5. First parallel dispatch | Watches 4 agents spin up | Surprise + delight |
+| 6. First proactive escalation | Hears Director unprompted | Jolted but appreciative *(it talks when I matter)* |
+| 7. First Harness rule | Says "no gradients ever" | Ownership *(it's learning my taste)* |
+| 8. First artifact reveal | Sees live interactive component | Payoff *(I made this without typing)* |
+| 9. Dismiss | "Done for now" | Comfortable *(still there, not in my face)* |
+| 10. Return next day | Opens app | Continuity *(picking up where we left off)* |
+
+### Time-horizon design
+
+- **5 seconds (visceral)** — first sight of the Strip's slow waveform pulse in dormant state. Vibrancy + spring sets tone: *intentional, calm, alive*. The dormant pulse must feel **breathing, not pulsing**.
+- **5 minutes (behavioral)** — after one full Brief → Canvas → Hive → Reveal cycle, mental model locks: *"I describe, it builds. I correct, it learns. I review, it ships."*
+- **5 years (reflective)** — Harness is full of personal rules, Strip feels like a teammate. The relationship is *attended* not *operated*.
+
+### Persona refinements (additive to vision)
+
+- **Preamble before any tool call > 800ms latency.** "On it." / "Looking." / "Thinking." — never "Sure!" or "Of course!"
+- **Never says "I" when narrating sub-agent work.** *"Frontend is laying out the card"* not *"I'm laying out the card."* Team metaphor.
+- **Brief apology when wrong**, then move on. *"Wrong direction — fixing."* No grovel.
+- **Silence is a feature.** Director never says "anything else?" When work is done, Director goes quiet.
+
+### Onboarding (3A-1) — minimal seed
+
+```
+T+0s    [Strip slides in from off-screen right, dormant]
+T+0.4s  Director: "Hi. Press Command Shift Space when you're ready."
+T+0.4s  [Strip shows hint: ⌘ ⇧ Space — fades over 6s]
+T+6s    [Strip dormant, hint gone]
+```
+
+**Phase 2 note (post-hackathon community use)**: evolve toward conversational onboarding (`"want a tour, or are we starting?"`) without lengthening the experience. Hackathon ships with minimal seed.
+
+### Harness rule save choreography (3B-1) — brief Canvas flash
+
+```
+User:   "No gradients ever."
+Director: "Saved." (soft confirm tone)
+[Canvas slides out ~1.2s with "+ Rule added: No gradients ever" card, fades]
+```
+
+The visual proof is the trust-builder. Canvas churn is acceptable cost — saves should *feel* like commits.
+
+### Session resume on launch (3C-1) — soft prompt
+
+```
+T+0s    [Strip slides in, dormant]
+T+0.6s  Director: "Pick up Mixtape, or start fresh?"
+        [Canvas slides out with 2-option picker]
+User:   "Resume." → context rehydrates, Strip ready
+```
+
+**What "resume" restores**: Harness (always), project metadata (always), conversation context (only if "resume" chosen). Active agents do NOT auto-respawn — clean slate.
 
 ## Pass 4 — AI Slop Risk ⏳
 
