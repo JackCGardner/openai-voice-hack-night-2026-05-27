@@ -1,0 +1,20 @@
+{
+  "name": "director-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.27.0",
+  "scripts": {
+    "dev": "pnpm --filter director dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css,html}\" --ignore-path .gitignore",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,css,html}\" --ignore-path .gitignore"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
