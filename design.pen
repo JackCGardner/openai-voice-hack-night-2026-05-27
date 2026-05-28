@@ -64,6 +64,7 @@
               "content": "FRONTEND",
               "fontFamily": "$font-display",
               "fontSize": "$font-xs",
+              "fontWeight": "normal",
               "letterSpacing": 0.5
             }
           ]
@@ -4513,7 +4514,7 @@
                       "fill": {
                         "type": "image",
                         "enabled": true,
-                        "url": "./images/generated-1779927788309.png",
+                        "url": "images/generated-1779927788309.png",
                         "mode": "fill"
                       },
                       "width": "fill_container",

@@ -99,20 +99,11 @@ interface ResponsesStreamEvent {
   };
 }
 
-/**
- * Read the side-store-derived World State. W3 owns the side-store module;
- * until it ships we return an empty stub so the planner still compiles
- * and runs end-to-end.
- */
-async function readWorldState(): Promise<Record<string, unknown>> {
-  // TODO(side-store): swap for `await readSideStore()` once W3 ships it.
-  return {
-    active_agents: [],
-    harness: [],
-    recent_decisions: [],
-    current_task: null,
-  };
-}
+// NOTE (advisory 10): the old local `readWorldState()` stub that returned
+// an empty object literal has been REMOVED. The consult body now reads the
+// real side-store view via `readSideStoreWorldState` (imported above). Do
+// NOT re-introduce a local stub — it would silently blind the planner to
+// harness rules + active agents + recent decisions.
 
 function buildSystemInput(
   args: ConsultArgs,
@@ -463,7 +454,15 @@ export async function consultDirector(
   await bootChainFromDisk();
   sessionState.lastUserActivityAt = Date.now();
 
-  const world = await readWorldState();
+  // Advisory 10: consult the REAL side-store world state (harness rules +
+  // active agents + recent decisions/transcript) instead of the old empty
+  // stub. `readSideStoreWorldState` auto-inits the session and tolerates
+  // missing files, so this is safe on a fresh boot. The result is an
+  // object literal which `buildBody` consumes as `Record<string, unknown>`.
+  const world = (await readSideStoreWorldState()) as unknown as Record<
+    string,
+    unknown
+  >;
   const previousResponseId = sessionState.lastResponseId;
   const body = buildBody(args, world, previousResponseId);
 

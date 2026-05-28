@@ -19,6 +19,7 @@ import {
 } from '../shared/realtime.js';
 import type { WorldStateBrief } from '../shared/state.js';
 import { readWorldState } from './side-store.js';
+import { preRotationCompaction } from './planner.js';
 import {
   buildWorldStateBrief,
   type BriefSourceSnapshot,
@@ -155,6 +156,17 @@ export interface PrepareRotationResult {
 export async function prepareRotation(
   req: RealtimeSessionRequest = {},
 ): Promise<PrepareRotationResult> {
+  // Gap 4: compact the planner chain BEFORE minting Session_B so the World
+  // State Brief reseeds from a clean orchestrator state. Best-effort +
+  // non-blocking on failure — a compaction error (or a missing client)
+  // must never abort a rotation. `preRotationCompaction` itself no-ops if
+  // there's no chain head yet or no compaction client wired.
+  try {
+    await preRotationCompaction();
+  } catch (err) {
+    console.warn('[realtime] preRotationCompaction failed; rotating anyway', err);
+  }
+
   // Mint first — if it fails we never want a stale brief floating around.
   const token = await mintEphemeralToken(req);
 

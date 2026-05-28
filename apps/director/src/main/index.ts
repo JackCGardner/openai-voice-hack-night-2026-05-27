@@ -28,8 +28,9 @@ import {
 } from './canvas.js';
 import { registerToolRouterIpc } from './tool-router.js';
 import { showChatDebugWindow } from './chat-debug-window.js';
-import { registerPlannerDevIpc } from './planner.js';
+import { registerPlannerDevIpc, setCompactionClient } from './planner.js';
 import { registerCodexPoolIpc, abortAllAgents } from './codex-pool.js';
+import OpenAI from 'openai';
 // ─── § canvas-degradation (W5 — P6.6) ───────────────────────────────────
 import { writeEnvKey } from './env-writer.js';
 import type {
@@ -40,6 +41,7 @@ import type {
 import {
   findResumableSession,
   forceFlushSnapshot,
+  registerSideStoreIpc,
 } from './side-store.js';
 import type { SessionResumeAvailablePayload } from '../shared/ipc.js';
 
@@ -484,6 +486,32 @@ app.whenReady().then(() => {
   registerToolRouterIpc(stripWindow);
   registerPlannerDevIpc(stripWindow);
   registerCodexPoolIpc(stripWindow);
+
+  // ─── § side-store bootstrap (W3 — gap 7) ────────────────────────────
+  // Boot the on-disk session dir + register the snapshot IPC. Async +
+  // idempotent (calls initSession internally); fire-and-forget so it
+  // doesn't block window creation. Without this, planner / rotation
+  // reads of the side store would lazily init a *different* session than
+  // the resume scanner expects, and the renderer's `sidestore.snapshot`
+  // round-trip would have no handler.
+  void registerSideStoreIpc().catch((err) =>
+    console.warn('[director] registerSideStoreIpc failed', err),
+  );
+
+  // ─── § compaction-client bootstrap (W1 — gap 3) ─────────────────────
+  // Hand the planner a real OpenAI client so `fireCompactionAsync` stops
+  // early-returning (no client ⇒ it falls back to the server-side
+  // `context_management` net only). Same OPENAI_API_KEY the planner /
+  // realtime mint paths read from process.env. If the key is missing we
+  // skip wiring — the planner still runs consults via its own fetch path
+  // and compaction degrades gracefully to the server-side safety net.
+  if (process.env.OPENAI_API_KEY) {
+    setCompactionClient(new OpenAI({ apiKey: process.env.OPENAI_API_KEY }));
+  } else {
+    console.warn(
+      '[director] OPENAI_API_KEY missing — manual compaction disabled (server-side context_management still active)',
+    );
+  }
 
   // ─── § session-resume (W3 — P6.3b) ──────────────────────────────────
   // Scan the on-disk sessions dir for a <7d-old session. If found,

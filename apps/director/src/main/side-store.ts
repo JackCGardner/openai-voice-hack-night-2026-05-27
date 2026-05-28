@@ -121,7 +121,22 @@ function requireDir(): string {
 async function atomicWrite(path: string, data: string): Promise<void> {
   const tmp = `${path}.tmp`;
   await fs.mkdir(dirname(path), { recursive: true });
-  await fs.writeFile(tmp, data, 'utf8');
+  // Advisory 11: fsync the tmp file's data to disk BEFORE the rename so a
+  // crash between write and rename can't leave a torn / zero-length file
+  // visible at `path`. Mirrors the open+sync+close pattern in
+  // `atomicAppendLine`. fsync is best-effort — some filesystems return
+  // EINVAL / ENOTSUP, which we swallow (the rename still gives atomicity).
+  const fh = await fs.open(tmp, 'w');
+  try {
+    await fh.writeFile(data, 'utf8');
+    try {
+      await fh.sync();
+    } catch {
+      // Best-effort fsync; ignore EINVAL / ENOTSUP on some filesystems.
+    }
+  } finally {
+    await fh.close();
+  }
   await fs.rename(tmp, path);
 }
 
@@ -633,6 +648,74 @@ function metaFilePath(): string {
   return join(requireDir(), 'meta.json');
 }
 
+/**
+ * Advisory 12: strip obviously-ephemeral runtime noise before persisting
+ * the snapshot. These fields are recomputed live on the next launch and
+ * have no business surviving a restart — persisting them only bloats the
+ * file and risks resuming with stale "in-flight" markers.
+ *
+ *   - `realtime.vadActivity`            — momentary VAD energy meter.
+ *   - `orchestrator.inFlightToolCalls`  — calls that died with the process.
+ *
+ * Defensive: operates on a shallow-cloned copy so we never mutate the
+ * renderer's live store object, and tolerates any non-object input
+ * (returns it unchanged).
+ */
+function stripEphemerals(store: unknown): unknown {
+  if (!store || typeof store !== 'object' || Array.isArray(store)) {
+    return store;
+  }
+  const src = store as Record<string, unknown>;
+  const out: Record<string, unknown> = { ...src };
+
+  // session.realtime.vadActivity — strip under either `session` or top-level
+  // `realtime` (the serializable store nests realtime at the top level; the
+  // advisory references the `session.realtime.*` logical path).
+  const realtime = out.realtime;
+  if (realtime && typeof realtime === 'object' && !Array.isArray(realtime)) {
+    const { vadActivity: _vad, ...restRealtime } = realtime as Record<
+      string,
+      unknown
+    >;
+    void _vad;
+    out.realtime = restRealtime;
+  }
+  const session = out.session;
+  if (session && typeof session === 'object' && !Array.isArray(session)) {
+    const sessionObj = session as Record<string, unknown>;
+    const sessRealtime = sessionObj.realtime;
+    if (
+      sessRealtime &&
+      typeof sessRealtime === 'object' &&
+      !Array.isArray(sessRealtime)
+    ) {
+      const { vadActivity: _v, ...restSessRealtime } = sessRealtime as Record<
+        string,
+        unknown
+      >;
+      void _v;
+      out.session = { ...sessionObj, realtime: restSessRealtime };
+    }
+  }
+
+  // orchestrator.inFlightToolCalls — transient per-process call tracking.
+  const orchestrator = out.orchestrator;
+  if (
+    orchestrator &&
+    typeof orchestrator === 'object' &&
+    !Array.isArray(orchestrator)
+  ) {
+    const { inFlightToolCalls: _calls, ...restOrch } = orchestrator as Record<
+      string,
+      unknown
+    >;
+    void _calls;
+    out.orchestrator = restOrch;
+  }
+
+  return out;
+}
+
 async function flushSnapshotNow(): Promise<void> {
   const data = snapshotPending;
   snapshotPending = null;
@@ -644,7 +727,7 @@ async function flushSnapshotNow(): Promise<void> {
   const payload: PersistedSnapshot = {
     schemaVersion: SIDESTORE_SCHEMA_VERSION,
     at: Date.now(),
-    store: data,
+    store: stripEphemerals(data),
   };
   try {
     await atomicWrite(snapshotFilePath(), JSON.stringify(payload));
