@@ -6,6 +6,12 @@ import { ThinkingStrip } from './components/ThinkingStrip';
 import { HiveStrip } from './components/HiveStrip';
 import { useRealtimeClient } from './hooks/useRealtimeClient';
 import { useDirectorStore, type Agent, type StripState } from './state/store';
+import {
+  startMixtapeDemo,
+  resolveJinBlocker,
+  stopMixtapeDemo,
+  isAwaitingResolution,
+} from './state/sim';
 
 type HiveVariant = 'working' | 'blocked' | 'done';
 
@@ -179,6 +185,21 @@ export function App(): JSX.Element {
           setStripState('hive');
           setHiveVariant('done');
         },
+        // Mixtape demo: D starts, R unblocks Jin, X stops.
+        d: () => startMixtapeDemo(),
+        D: () => startMixtapeDemo(),
+        r: () => {
+          if (isAwaitingResolution()) {
+            resolveJinBlocker('mock the Stripe gateway for now');
+          }
+        },
+        R: () => {
+          if (isAwaitingResolution()) {
+            resolveJinBlocker('mock the Stripe gateway for now');
+          }
+        },
+        x: () => stopMixtapeDemo(),
+        X: () => stopMixtapeDemo(),
       };
       const fn = map[e.key];
       if (fn) {
