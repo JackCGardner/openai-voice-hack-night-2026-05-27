@@ -164,17 +164,60 @@ export function App(): JSX.Element {
     };
   }, [client]);
 
-  // Listen for the sim's escalation event. The orchestration layer will
-  // eventually inject a server-initiated Realtime response here; for now
-  // a console log proves the pipe works.
+  // Listen for the sim's escalation event and bridge it into Realtime as a
+  // server-initiated response. Per docs/research/gpt-realtime-2.md §8, we
+  // inject a system-role conversation item describing the blocker and the
+  // resolution question, then force a `response.create` so Director speaks
+  // unprompted through the existing peer connection.
   useEffect(() => {
     const onEscalation = (event: Event): void => {
       const ce = event as CustomEvent<EscalationDetail>;
-      console.log('[escalation]', ce.detail);
+      const detail = ce.detail ?? {};
+      console.log('[escalation]', detail);
+
+      const agentId =
+        (detail.agent_id as string | undefined) ??
+        (detail.agent as string | undefined) ??
+        'an agent';
+      const blocker =
+        (detail.blocker as string | undefined) ??
+        (detail.reason as string | undefined) ??
+        'unspecified blocker';
+      const suggestedQuestion =
+        (detail.suggested_question as string | undefined) ??
+        'How should we proceed?';
+
+      const text =
+        `An agent named ${agentId} is blocked: ${blocker}. ` +
+        `Ask the user: '${suggestedQuestion}' Be brief, terse, polite.`;
+
+      if (client.status !== 'connected') {
+        console.warn(
+          `[escalation] Realtime not connected (status=${client.status}); skipping injection`,
+        );
+        return;
+      }
+
+      const okItem = client.send({
+        type: 'conversation.item.create',
+        item: {
+          type: 'message',
+          role: 'system',
+          content: [{ type: 'input_text', text }],
+        },
+      });
+      const okResp = client.send({ type: 'response.create' });
+
+      if (!okItem || !okResp) {
+        console.warn('[escalation] data channel not open; injection partially failed');
+        return;
+      }
+
+      console.log(`[escalation] dispatched: ${text}`);
     };
     window.addEventListener('director:escalation', onEscalation);
     return () => window.removeEventListener('director:escalation', onEscalation);
-  }, []);
+  }, [client]);
 
   // ── Auto-resize the Strip window per state ─────────────────────────────
   //  Main re-anchors to the right edge (workArea-aware) and animates the
