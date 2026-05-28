@@ -25,6 +25,7 @@ import {
 } from './canvas.js';
 import { registerToolRouterIpc } from './tool-router.js';
 import { showChatDebugWindow } from './chat-debug-window.js';
+import { registerPlannerDevIpc } from './planner.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
@@ -387,6 +388,7 @@ app.whenReady().then(() => {
   registerGlobalHotkey();
   registerIpcHandlers();
   registerToolRouterIpc(stripWindow);
+  registerPlannerDevIpc(stripWindow);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
