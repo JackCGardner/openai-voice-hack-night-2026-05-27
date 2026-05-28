@@ -7,7 +7,7 @@
  * Demo content: docs/research/demo-target-app.md "Mixtape".
  */
 
-import { useState, type JSX } from 'react';
+import { useEffect, useRef, useState, type JSX } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 
 export interface MixtapeTrack {
@@ -47,121 +47,185 @@ export const MOCK_MIXTAPE: MixtapeData = {
 export function ArtifactPreview({
   title,
   notes,
-  mixtape = MOCK_MIXTAPE,
+  mixtape: providedMixtape,
   actions = ['ship', 'iterate', 'discard'],
   onAction,
 }: ArtifactPreviewProps): JSX.Element {
   const [flipped, setFlipped] = useState(false);
+  const [iframeFailed, setIframeFailed] = useState(false);
+  const iframeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reduced = useReducedMotion();
+  const providedVibe = typeof providedMixtape?.vibe === 'string' ? providedMixtape.vibe.trim() : '';
+  const mixtape: MixtapeData = {
+    ...MOCK_MIXTAPE,
+    ...providedMixtape,
+    vibe: providedVibe || MOCK_MIXTAPE.vibe,
+    tracks: Array.isArray(providedMixtape?.tracks) ? providedMixtape.tracks : MOCK_MIXTAPE.tracks,
+    coverUrl:
+      typeof providedMixtape?.coverUrl === 'string'
+        ? providedMixtape.coverUrl
+        : MOCK_MIXTAPE.coverUrl,
+  };
+  const iframeUrl = providedVibe
+    ? `http://localhost:3001/?vibe=${encodeURIComponent(providedVibe)}`
+    : null;
+  const showIframe = iframeUrl !== null && !iframeFailed;
 
-  const totalRuntime = mixtape.tracks
-    .reduce((sum, t) => {
-      const [m, s] = t.runtime.split(':').map(Number);
-      return sum + (m ?? 0) * 60 + (s ?? 0);
-    }, 0);
+  useEffect(() => {
+    setIframeFailed(false);
+
+    if (!iframeUrl) {
+      return;
+    }
+
+    iframeTimeoutRef.current = setTimeout(() => {
+      setIframeFailed(true);
+      iframeTimeoutRef.current = null;
+    }, 2000);
+
+    return () => {
+      if (iframeTimeoutRef.current) {
+        clearTimeout(iframeTimeoutRef.current);
+        iframeTimeoutRef.current = null;
+      }
+    };
+  }, [iframeUrl]);
+
+  const handleIframeLoad = (): void => {
+    if (iframeTimeoutRef.current) {
+      clearTimeout(iframeTimeoutRef.current);
+      iframeTimeoutRef.current = null;
+    }
+  };
+
+  const totalRuntime = mixtape.tracks.reduce((sum, t) => {
+    const [m, s] = t.runtime.split(':').map(Number);
+    return sum + (m ?? 0) * 60 + (s ?? 0);
+  }, 0);
   const totalMin = Math.floor(totalRuntime / 60);
   const totalSec = totalRuntime % 60;
   const totalStr = `${totalMin}:${String(totalSec).padStart(2, '0')}`;
+
+  const actionButtons =
+    actions.length > 0 ? (
+      <div className="artifact-actions">
+        {actions.includes('ship') ? (
+          <button
+            type="button"
+            className="artifact-action primary"
+            data-no-drag
+            onClick={() => onAction?.('ship')}
+          >
+            Ship
+          </button>
+        ) : null}
+        {actions.includes('iterate') ? (
+          <button
+            type="button"
+            className="artifact-action"
+            data-no-drag
+            onClick={() => onAction?.('iterate')}
+          >
+            Iterate
+          </button>
+        ) : null}
+        {actions.includes('discard') ? (
+          <button
+            type="button"
+            className="artifact-action danger"
+            data-no-drag
+            onClick={() => onAction?.('discard')}
+          >
+            Discard
+          </button>
+        ) : null}
+      </div>
+    ) : null;
 
   return (
     <div className="artifact">
       {title ? <div className="canvas-title">{title}</div> : null}
 
-      <div className="artifact-frame">
-        <motion.div
-          className="artifact-card"
-          animate={
-            reduced ? { rotateY: 0 } : { rotateY: flipped ? 180 : 0 }
-          }
-          transition={
-            reduced
-              ? { duration: 0 }
-              : { type: 'spring', stiffness: 180, damping: 22 }
-          }
-          style={{ transformStyle: 'preserve-3d' }}
-        >
-          {/* Front face — cover + tracklist. */}
-          <div className="artifact-card-front">
-            <button
-              type="button"
-              className="artifact-cover"
-              data-no-drag
-              onClick={() => setFlipped((f) => !f)}
-              aria-label="Flip cover"
+      {showIframe ? (
+        <div className="artifact-frame">
+          <div
+            className="artifact-card"
+            style={{
+              background: 'transparent',
+              height: '100%',
+              maxHeight: 460,
+            }}
+          >
+            <iframe
+              title={title ?? 'Mixtape preview'}
+              src={iframeUrl}
+              onLoad={handleIframeLoad}
+              onError={() => setIframeFailed(true)}
               style={{
-                backgroundImage: mixtape.coverUrl
-                  ? `url(${mixtape.coverUrl})`
-                  : undefined,
+                width: '100%',
+                height: '100%',
+                border: 0,
+                background: 'transparent',
               }}
-            >
-              <div className="artifact-cover-overlay">
-                <span className="artifact-tag">Mixtape · {mixtape.tracks.length} tracks · {totalStr}</span>
-                <span className="artifact-vibe">{mixtape.vibe}</span>
-              </div>
-            </button>
-
-            <div className="artifact-tracks">
-              {mixtape.tracks.map((track, i) => (
-                <div className="artifact-track" key={`${track.title}-${i}`}>
-                  <span className="artifact-track-num">
-                    {String(i + 1).padStart(2, '0')}
-                  </span>
-                  <div className="artifact-track-meta">
-                    <span className="artifact-track-title">{track.title}</span>
-                    <span className="artifact-track-artist">{track.artist}</span>
-                  </div>
-                  <span className="artifact-track-runtime">{track.runtime}</span>
-                </div>
-              ))}
-            </div>
+            />
           </div>
-
-          {/* Back face — minimal meta + actions. */}
-          <div className="artifact-card-back">
-            <span className="canvas-eyebrow">Mixtape</span>
-            <div className="canvas-title">{mixtape.vibe}</div>
-            <span className="artifact-meta">
-              {mixtape.tracks.length} tracks · {totalStr} runtime
-            </span>
-            {notes ? <span className="artifact-meta">{notes}</span> : null}
-          </div>
-        </motion.div>
-      </div>
-
-      {actions.length > 0 ? (
-        <div className="artifact-actions">
-          {actions.includes('ship') ? (
-            <button
-              type="button"
-              className="artifact-action primary"
-              data-no-drag
-              onClick={() => onAction?.('ship')}
-            >
-              Ship
-            </button>
-          ) : null}
-          {actions.includes('iterate') ? (
-            <button
-              type="button"
-              className="artifact-action"
-              data-no-drag
-              onClick={() => onAction?.('iterate')}
-            >
-              Iterate
-            </button>
-          ) : null}
-          {actions.includes('discard') ? (
-            <button
-              type="button"
-              className="artifact-action danger"
-              data-no-drag
-              onClick={() => onAction?.('discard')}
-            >
-              Discard
-            </button>
-          ) : null}
         </div>
-      ) : null}
+      ) : (
+        <div className="artifact-frame">
+          <motion.div
+            className="artifact-card"
+            animate={reduced ? { rotateY: 0 } : { rotateY: flipped ? 180 : 0 }}
+            transition={reduced ? { duration: 0 } : { type: 'spring', stiffness: 180, damping: 22 }}
+            style={{ transformStyle: 'preserve-3d' }}
+          >
+            {/* Front face — cover + tracklist. */}
+            <div className="artifact-card-front">
+              <button
+                type="button"
+                className="artifact-cover"
+                data-no-drag
+                onClick={() => setFlipped((f) => !f)}
+                aria-label="Flip cover"
+                style={{
+                  backgroundImage: mixtape.coverUrl ? `url(${mixtape.coverUrl})` : undefined,
+                }}
+              >
+                <div className="artifact-cover-overlay">
+                  <span className="artifact-tag">
+                    Mixtape · {mixtape.tracks.length} tracks · {totalStr}
+                  </span>
+                  <span className="artifact-vibe">{mixtape.vibe}</span>
+                </div>
+              </button>
+
+              <div className="artifact-tracks">
+                {mixtape.tracks.map((track, i) => (
+                  <div className="artifact-track" key={`${track.title}-${i}`}>
+                    <span className="artifact-track-num">{String(i + 1).padStart(2, '0')}</span>
+                    <div className="artifact-track-meta">
+                      <span className="artifact-track-title">{track.title}</span>
+                      <span className="artifact-track-artist">{track.artist}</span>
+                    </div>
+                    <span className="artifact-track-runtime">{track.runtime}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Back face — minimal meta + actions. */}
+            <div className="artifact-card-back">
+              <span className="canvas-eyebrow">Mixtape</span>
+              <div className="canvas-title">{mixtape.vibe}</div>
+              <span className="artifact-meta">
+                {mixtape.tracks.length} tracks · {totalStr} runtime
+              </span>
+              {notes ? <span className="artifact-meta">{notes}</span> : null}
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {actionButtons}
     </div>
   );
 }
