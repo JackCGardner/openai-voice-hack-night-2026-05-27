@@ -94,8 +94,18 @@ export function realtimeToolDefs(): Array<Record<string, unknown>> {
         properties: {
           component: {
             type: 'string',
-            description:
-              'Component kind: "moodboard" | "options_picker" | "diagram" | "diff_view" | "form" | "html".',
+            enum: [
+              'moodboard',
+              'options_picker',
+              'code_preview',
+              'form',
+              'artifact_preview',
+              'harness_rule_save',
+              'agent_pod',
+              'diagram',
+              'html',
+            ],
+            description: 'Component kind. Closed enum — pick one of the listed.',
           },
           component_id: {
             type: 'string',
@@ -223,6 +233,10 @@ export function buildSessionUpdate(): Record<string, unknown> {
           },
           transcription: { model: 'gpt-4o-mini-transcribe' },
         },
+        // Match the mint config's audio.output.format. The mint sets this
+        // immutably for the session, but omission here creates drift for
+        // future maintainers reading the update payload.
+        output: { format: { type: 'audio/pcm', rate: 24000 } },
       },
       tools: realtimeToolDefs(),
       tool_choice: 'auto',

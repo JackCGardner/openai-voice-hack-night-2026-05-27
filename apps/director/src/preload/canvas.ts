@@ -11,8 +11,34 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import { CanvasIpcChannel } from '../shared/canvas-ipc.js';
 
 type Listener = (...args: unknown[]) => void;
+type IpcListener = (event: IpcRendererEvent, ...args: unknown[]) => void;
 
 const SAFE_CHANNELS = new Set<string>(Object.values(CanvasIpcChannel));
+
+/**
+ * Per-channel registry of (caller listener) → (wrapped listener we passed to
+ * ipcRenderer). Lets removeListener target the SPECIFIC wrapped listener
+ * instead of dropping every subscriber on the channel — prior implementation
+ * called ipcRenderer.removeAllListeners(channel), which would deregister
+ * any other subscriber on the same channel.
+ */
+const wrappers = new Map<string, WeakMap<Listener, IpcListener>>();
+
+function trackWrapper(channel: string, original: Listener, wrapped: IpcListener): void {
+  let perChannel = wrappers.get(channel);
+  if (!perChannel) {
+    perChannel = new WeakMap();
+    wrappers.set(channel, perChannel);
+  }
+  perChannel.set(original, wrapped);
+}
+
+function popWrapper(channel: string, original: Listener): IpcListener | undefined {
+  const perChannel = wrappers.get(channel);
+  const wrapped = perChannel?.get(original);
+  perChannel?.delete(original);
+  return wrapped;
+}
 
 const api = {
   on(channel: string, listener: Listener): void {
@@ -20,16 +46,16 @@ const api = {
       console.warn(`[canvas:preload] refusing on(${channel})`);
       return;
     }
-    ipcRenderer.on(
-      channel,
-      (event: IpcRendererEvent, ...args: unknown[]) =>
-        listener(event, ...args),
-    );
+    const wrapped: IpcListener = (event, ...args) => listener(event, ...args);
+    trackWrapper(channel, listener, wrapped);
+    ipcRenderer.on(channel, wrapped);
   },
-  removeListener(channel: string, _listener: Listener): void {
+  removeListener(channel: string, listener: Listener): void {
     if (!SAFE_CHANNELS.has(channel)) return;
-    // Each window keeps a single listener per channel; drop all is safe here.
-    ipcRenderer.removeAllListeners(channel);
+    const wrapped = popWrapper(channel, listener);
+    if (wrapped) {
+      ipcRenderer.removeListener(channel, wrapped);
+    }
   },
   send(channel: string, ...args: unknown[]): void {
     if (!SAFE_CHANNELS.has(channel)) {

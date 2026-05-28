@@ -160,14 +160,24 @@ async function acquire(): Promise<void> {
     inFlight += 1;
     return;
   }
+  // The slot is HANDED OVER synchronously in release() — the waiter does
+  // not need to increment after the await. Incrementing after the await
+  // would create a microtask race where two consecutive release() calls
+  // could resolve two waiters before either incremented inFlight,
+  // briefly putting 5+ agents in flight.
   await new Promise<void>((resolve) => waiters.push(resolve));
-  inFlight += 1;
 }
 
 function release(): void {
-  inFlight = Math.max(0, inFlight - 1);
   const next = waiters.shift();
-  if (next) next();
+  if (next) {
+    // Direct hand-off: keep inFlight at its current count (the released
+    // slot transfers atomically to the waiter). Resolve the waiter so
+    // it proceeds with the reserved slot.
+    next();
+  } else {
+    inFlight = Math.max(0, inFlight - 1);
+  }
 }
 
 // ─── Live agent state ─────────────────────────────────────────────────
