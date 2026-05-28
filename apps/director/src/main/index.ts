@@ -170,11 +170,11 @@ function registerGlobalHotkey(): void {
   }
 
   // ─── Dev keystrokes — manual Canvas QA without the Realtime layer. ────
-  // Cmd+Opt+M → toggle Mixtape moodboard
-  // Cmd+Opt+A → toggle Mixtape artifact reveal
-  // Cmd+Opt+H → toggle Harness rule-save flash
-  // Cmd+Opt+X → dismiss Canvas
-  // (Cmd+Shift+3-6 are reserved by macOS for screenshots — avoided.)
+  // Hyper chord (Ctrl+Alt+Cmd) — nothing else uses it.
+  //   ⌃⌥⌘M → toggle Mixtape moodboard
+  //   ⌃⌥⌘A → toggle Mixtape artifact reveal
+  //   ⌃⌥⌘H → toggle Harness rule-save flash
+  //   ⌃⌥⌘X → dismiss Canvas
   if (is.dev) {
     registerDevCanvasShortcuts();
   }
@@ -264,10 +264,12 @@ function registerDevCanvasShortcuts(): void {
     });
   };
 
-  globalShortcut.register('CommandOrControl+Alt+M', toggleMoodboard);
-  globalShortcut.register('CommandOrControl+Alt+A', toggleArtifact);
-  globalShortcut.register('CommandOrControl+Alt+H', toggleRule);
-  globalShortcut.register('CommandOrControl+Alt+X', () => dismissCanvas());
+  // Hyper chord (Ctrl+Alt+Cmd+key) — nothing on macOS binds this by default.
+  const okM = globalShortcut.register('Control+Alt+Cmd+M', toggleMoodboard);
+  const okA = globalShortcut.register('Control+Alt+Cmd+A', toggleArtifact);
+  const okH = globalShortcut.register('Control+Alt+Cmd+H', toggleRule);
+  const okX = globalShortcut.register('Control+Alt+Cmd+X', () => dismissCanvas());
+  console.log(`[hotkeys] M=${okM} A=${okA} H=${okH} X=${okX}`);
 }
 
 function registerIpcHandlers(): void {
