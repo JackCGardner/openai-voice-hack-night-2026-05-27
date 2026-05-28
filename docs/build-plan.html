@@ -398,26 +398,26 @@ const checkpoints = [
     ]
   },
   { id: "R3", at: 9.5, gates: "P4 finish → P5+P6+P7",
-    title: "3-tier alive + headless dogfood?",
-    sub: "Verify W3 P4c (Codex events → Hive store) headless + W5 P4d (headless CLI dogfood — Jin against examples/mixtape, diff + typecheck + curl) before the P5+P6+P7 parallel batch fires. Final iframe visual + voice round-trip is the user's hands-on test at R3 close.",
+    title: "3-tier alive + headless dogfood? (headless-only)",
+    sub: "100% headless verification — no workers launch the app, Main does not launch the app for smoke tests. W3 P4c (Codex events → Hive store) verified by unit tests against ipcSync; W5 P4d (CLI dogfood — Jin against examples/mixtape) verified by diff + typecheck + curl. ALL hands-on visual/audio testing is deferred to R4 at the very end of the plan.",
     criteria: [
-      "headless: real Codex subprocess spawns with Jin AGENTS.md identity (DIRECTOR_USE_REAL_CODEX=1)",
-      "headless: file_change / turn.completed events emitted on codex.event channel and applied by ipcSync to the store (unit-testable)",
+      "headless: real Codex subprocess spawns with Jin AGENTS.md identity (DIRECTOR_USE_REAL_CODEX=1) via CLI script — no Electron launch",
+      "headless: file_change / turn.completed events emitted on codex.event channel and applied by ipcSync to the store (unit test asserts store transitions from synthetic CodexEvent payloads)",
       "headless: route.ts diff shows real implementation (no longer 501-stub) + mixtape typecheck + build pass",
       "headless: curl against built/started mixtape returns 200 with Mixtape JSON",
       "headless: harness.json + decisions.jsonl + agents/<id>.json on disk after the dogfood run",
-      "user hands-on (R3 close): launch Director, dispatch Jin via voice, Canvas iframe renders the completed flippable card",
     ]
   },
   { id: "R4", at: 14.5, gates: "P5+P6+P7 → ship",
-    title: "Polished + resilient + durable?",
-    sub: "Final integration. Captions + audio cues + session rotation + reconnect + resume + planner chaining + compaction + watchdogs + error degradation all working. Full 5-min demo dry-run from cold start.",
+    title: "Polished + resilient + durable? (USER hands-on)",
+    sub: "Final integration + the ONLY hands-on visual/audio test window. User launches the app and runs the full demo dry-run end-to-end. Workers never launch the app before this; Main only launches if it can be fully automated (Playwright + xvfb). Headless code completeness verified by typecheck + build + unit + CLI scripts.",
     criteria: [
-      "P5: Captions track narration · audio cues on every state transition · hover-peek + strip-as-handle + onboarding seed",
-      "P6: 55-min rotation invisible · disconnect→queued utterance→reconnect path · resume-on-launch picker · state.snapshot+meta+orchestrator.jsonl on disk · Codex hang watchdog fires · worktree merge fan-in works · Canvas error boundary + mic/api-key cards",
-      "P7: previous_response_id chaining persists across consults · responses.compact fires at quiescent moments · health-check probe runs post-compaction and re-injects on mismatch",
-      "Full 5-min Mixtape demo runs end-to-end from cold start (no manual setup) without intervention",
-      "Kill the process mid-session → relaunch → 'Pick up Mixtape?' → state restored",
+      "Headless: P5/P6/P7 all typecheck + build + unit tests pass; CLI scripts confirm rotation logic, compaction trigger, snapshot persistence, resume hydration",
+      "USER hands-on: Captions track narration · audio cues on every state transition · hover-peek + strip-as-handle + onboarding seed all work in the real app",
+      "USER hands-on: 55-min rotation invisible · disconnect→queued utterance→reconnect · resume-on-launch picker fires after kill+relaunch",
+      "USER hands-on: dispatch Jin via voice → Canvas iframe renders completed Mixtape route (the R3 visual confirmation also lives here)",
+      "USER hands-on: Codex hang watchdog escalates audibly · worktree merge fan-in shows Canvas approval card · Canvas error/mic/api-key cards render correctly",
+      "USER hands-on: full 5-min Mixtape demo runs end-to-end from cold start without intervention",
     ]
   },
 ];

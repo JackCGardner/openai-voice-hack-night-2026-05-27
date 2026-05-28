@@ -271,25 +271,34 @@ The rebalance introduced two new shared-file points between Main and W1. Both ar
 
 ---
 
-## R3 prerequisites (gate before P5/P6/P7 fire)
+## App-launch policy (strict)
 
-R3 is split into a **headless verification** the workers complete, and a **hands-on visual confirmation** the user runs at R3 close (launching the app + voice round-trip). Workers never run the Director app — they verify everything via CLI, unit tests, and curl.
+**Workers (W1–W5) NEVER launch the Director Electron app.** Not for smoke tests, not for verification, not for confidence. Every worker task must be verifiable through some combination of: typecheck, build, unit/integration tests, CLI scripts that invoke modules directly (not through Electron), `curl` against locally-built services, and `git diff` inspection.
+
+**Main launches the app ONLY when launching is part of an automated test** (e.g., Playwright + headless Electron). Manual smoke tests, "let me just check it launches," and restarting the user's running dev process are all forbidden.
+
+**All hands-on visual + audio testing happens at R4** (the very end of the plan) by the user. R3 has NO hands-on portion — it's 100% headless.
+
+If a task can't be verified headlessly, **re-scope the task** rather than reaching for the launch button.
+
+## R3 prerequisites (gate before P5/P6/P7 fire) — 100% headless
 
 ### Headless prerequisites (workers)
 
 1. **W3 P4c — Codex events → store actions (headless).** `apps/director/src/renderer/src/state/ipcSync.ts` subscribes to the `codex.event` channel (already emitted by `apps/director/src/main/codex-pool.ts`) and maps event types onto the existing renderer store commands (`addAgent` / `updateAgent` for status + currentTask + recentFiles, `blockAgent` on `error`, `completeAgent` on `agent_finished`). Verified by unit test that pushes synthetic `CodexEvent` payloads and asserts store transitions.
 2. **W5 P4d — Headless dogfood CLI script.** New file at `apps/director/scripts/dogfood-mixtape.mts` (or similar) that:
    - sets `DIRECTOR_USE_REAL_CODEX=1`
-   - invokes the codex-pool's `dispatchAgent({ agentId: 'jin', role: 'backend', task, targetRepo: examples/mixtape })` directly (not through the Realtime tool route)
+   - invokes the codex-pool's `dispatchAgent({ agentId: 'jin', role: 'backend', task, targetRepo: examples/mixtape })` directly (NOT through the Realtime tool route, NOT through Electron)
    - waits for `agent_finished` event
    - runs `git -C <worktree> diff app/api/mixtape/\[id\]/route.ts` and asserts it's no longer the 501 stub
    - runs `pnpm --filter mixtape typecheck && pnpm --filter mixtape build` from the worktree
    - merges the worktree into a temp branch, then `pnpm --filter mixtape start` + curl `http://localhost:3000/api/mixtape/test-id` → expect 200 + valid Mixtape JSON
    - cleans up worktree + temp branch
+   - **never launches the Director Electron app**
 
-### Hands-on verification (user, at R3 close)
+### Hands-on verification
 
-The user launches Director, dispatches Jin via voice, watches the Canvas iframe render the completed Mixtape route. This is the only step that requires running the Electron app — workers never launch it.
+Folded into **R4**. No hands-on testing at R3.
 
 ---
 
