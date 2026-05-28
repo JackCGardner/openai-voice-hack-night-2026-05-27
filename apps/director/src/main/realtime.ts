@@ -13,7 +13,7 @@
 
 import {
   DIRECTOR_INSTRUCTIONS,
-  RealtimeToolName,
+  realtimeToolDefs,
   type RealtimeEphemeralToken,
   type RealtimeSessionRequest,
 } from '../shared/realtime.js';
@@ -22,96 +22,6 @@ const CLIENT_SECRETS_URL = 'https://api.openai.com/v1/realtime/client_secrets';
 
 const DEFAULT_MODEL = 'gpt-realtime-2';
 const DEFAULT_VOICE = 'marin';
-
-// ─── Tool catalog ─────────────────────────────────────────────────────────
-// Surface only what Director needs at the *voice* layer. Heavy work hops
-// to gpt-5.5 / Codex via `dispatch_agent_mock`. Keep parameter schemas
-// terse — gpt-realtime-2 follows narrow wording strictly (Foundry warning).
-
-function toolDefs(): Array<Record<string, unknown>> {
-  return [
-    {
-      type: 'function',
-      name: RealtimeToolName.RenderCanvas,
-      description:
-        'Open the GenUI Canvas with a visual component. Use when the user needs to see, choose, or judge something — moodboards, options pickers, diffs, forms.',
-      parameters: {
-        type: 'object',
-        properties: {
-          component: {
-            type: 'string',
-            description:
-              'Component kind, e.g. "moodboard", "options_picker", "diff_view", "form".',
-          },
-          props: {
-            type: 'object',
-            description: 'Free-form props for the component. JSON-serializable.',
-            additionalProperties: true,
-          },
-        },
-        required: ['component'],
-      },
-    },
-    {
-      type: 'function',
-      name: RealtimeToolName.DispatchAgentMock,
-      description:
-        'Kick off a named sub-agent (Maya, Jin, Cleo, Wren) on a task. Returns immediately with a job id; the agent reports back later via a system message.',
-      parameters: {
-        type: 'object',
-        properties: {
-          agent: {
-            type: 'string',
-            enum: ['maya', 'jin', 'cleo', 'wren'],
-            description:
-              'Agent name. Maya=frontend, Jin=backend, Cleo=data, Wren=design.',
-          },
-          task: {
-            type: 'string',
-            description: 'One-line task description in the user\'s words.',
-          },
-        },
-        required: ['agent', 'task'],
-      },
-    },
-    {
-      type: 'function',
-      name: RealtimeToolName.AskUser,
-      description:
-        'Ask the user a direct question. Use sparingly — only when you genuinely need a decision before continuing.',
-      parameters: {
-        type: 'object',
-        properties: {
-          question: { type: 'string' },
-          options: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Optional short list of choices for the user to pick from.',
-          },
-        },
-        required: ['question'],
-      },
-    },
-    {
-      type: 'function',
-      name: RealtimeToolName.UpdateHarness,
-      description:
-        'Save a permanent rule to the project harness. Use whenever the user states a preference, constraint, or correction that should bind future work.',
-      parameters: {
-        type: 'object',
-        properties: {
-          rule: { type: 'string', description: 'The rule, in one sentence.' },
-          scope: {
-            type: 'string',
-            enum: ['project', 'global'],
-            description: 'Whether the rule applies to this project only or to all projects.',
-          },
-        },
-        required: ['rule'],
-      },
-    },
-  ];
-}
 
 function sessionConfig(req: RealtimeSessionRequest, model: string, voice: string) {
   const overrideVoice = req?.voice ?? voice;
@@ -135,10 +45,11 @@ function sessionConfig(req: RealtimeSessionRequest, model: string, voice: string
         speed: 1.0,
       },
     },
-    tools: toolDefs(),
+    tools: realtimeToolDefs(),
     tool_choice: 'auto',
     reasoning: { effort: 'low' as const },
     max_response_output_tokens: 4096,
+    include: ['item.input_audio_transcription.logprobs'],
   };
 }
 

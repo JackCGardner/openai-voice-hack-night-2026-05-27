@@ -16,7 +16,7 @@
  * Refs: docs/research/gpt-realtime-2.md §6 (transports + endpoints).
  */
 
-import type { RealtimeEphemeralToken } from '../../../shared/realtime.js';
+import { buildSessionUpdate, type RealtimeEphemeralToken } from '../../../shared/realtime.js';
 
 const SDP_URL = 'https://api.openai.com/v1/realtime/calls';
 
@@ -139,10 +139,26 @@ export class RealtimeClient {
       dc.onopen = () => {
         // connectionState may flip after the DC opens — promote here too.
         if (pc.connectionState === 'connected') this.setStatus('connected');
+        // Belt-and-braces: re-affirm session config now that the channel is
+        // confirmed open. The mint config already sets these, so the model
+        // will usually ack with `session.updated` containing no diff.
+        const update = buildSessionUpdate();
+        try {
+          dc.send(JSON.stringify(update));
+          console.log('[realtime] sent session.update on channel open');
+        } catch (err) {
+          console.warn('[realtime] failed to send session.update', err);
+        }
       };
       dc.onmessage = (evt) => {
         try {
           const parsed = JSON.parse(evt.data) as Record<string, unknown>;
+          const type = parsed.type as string | undefined;
+          // Surface the lifecycle-significant events explicitly so we can
+          // see in the console that the session is alive.
+          if (type === 'session.created' || type === 'session.updated' || type === 'error') {
+            console.log(`[realtime] ${type}`, parsed);
+          }
           this.emit('event', parsed);
         } catch (err) {
           console.warn('[realtime] non-JSON event', err, evt.data);

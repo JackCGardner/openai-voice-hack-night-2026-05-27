@@ -75,6 +75,131 @@ export type RealtimeLifecycle =
   | 'degraded' // disconnected; retrying
   | 'closed';
 
+// ─── Tool JSON-Schema definitions ─────────────────────────────────────────
+// Shared between mint config (main) and `session.update` (renderer) so we
+// have ONE source of truth. The schemas are deliberately terse —
+// gpt-realtime-2 follows narrow wording strictly (Foundry warning, see
+// docs/research/gpt-realtime-2.md §11.10).
+
+export function realtimeToolDefs(): Array<Record<string, unknown>> {
+  return [
+    {
+      type: 'function',
+      name: RealtimeToolName.RenderCanvas,
+      description:
+        'Open the GenUI Canvas with a visual component. Use when the user needs to see, choose, or judge something — moodboards, options pickers, diffs, forms.',
+      parameters: {
+        type: 'object',
+        properties: {
+          component: {
+            type: 'string',
+            description:
+              'Component kind: "moodboard" | "options_picker" | "diagram" | "diff_view" | "form" | "html".',
+          },
+          component_id: {
+            type: 'string',
+            description:
+              'Stable id for this canvas mount — pass back on canvas_response. Optional; the orchestrator will mint one if omitted.',
+          },
+          props: {
+            type: 'object',
+            description:
+              'Component props per docs/research/genui-schema.md. Free-form JSON; the canvas validates per-component.',
+            additionalProperties: true,
+          },
+        },
+        required: ['component', 'props'],
+      },
+    },
+    {
+      type: 'function',
+      name: RealtimeToolName.DispatchAgentMock,
+      description:
+        'Kick off a named sub-agent (Maya, Jin, Cleo, Wren) on a task. Returns immediately with a job id; the agent reports back later via a system message.',
+      parameters: {
+        type: 'object',
+        properties: {
+          agent: {
+            type: 'string',
+            enum: ['maya', 'jin', 'cleo', 'wren'],
+            description: 'Agent. Maya=frontend, Jin=backend, Cleo=data, Wren=design.',
+          },
+          task: {
+            type: 'string',
+            description: "One-line task description in the user's words.",
+          },
+        },
+        required: ['agent', 'task'],
+      },
+    },
+    {
+      type: 'function',
+      name: RealtimeToolName.AskUser,
+      description:
+        'Ask the user a direct question. Use sparingly — only when you genuinely need a decision before continuing.',
+      parameters: {
+        type: 'object',
+        properties: {
+          question: { type: 'string' },
+          options: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional short list of choices for the user to pick from.',
+          },
+        },
+        required: ['question'],
+      },
+    },
+    {
+      type: 'function',
+      name: RealtimeToolName.UpdateHarness,
+      description:
+        'Save a permanent rule to the project harness. Use whenever the user states a preference, constraint, or correction that should bind future work.',
+      parameters: {
+        type: 'object',
+        properties: {
+          rule: { type: 'string', description: 'The rule, in one sentence.' },
+          scope: {
+            type: 'string',
+            enum: ['project', 'global'],
+            description:
+              'Whether the rule applies to this project only or to all projects.',
+          },
+        },
+        required: ['rule'],
+      },
+    },
+  ];
+}
+
+// ─── session.update payload builder (renderer side) ───────────────────────
+// Sent over the data channel right after `oai-events` opens. The mint
+// config already includes all of this — re-sending it is a belt-and-braces
+// step that survives any race between mint cache hits and tool changes.
+
+export function buildSessionUpdate(): Record<string, unknown> {
+  return {
+    type: 'session.update',
+    session: {
+      type: 'realtime',
+      output_modalities: ['audio'],
+      instructions: DIRECTOR_INSTRUCTIONS,
+      audio: {
+        input: {
+          turn_detection: {
+            type: 'semantic_vad',
+            eagerness: 'medium',
+            interrupt_response: true,
+          },
+        },
+      },
+      tools: realtimeToolDefs(),
+      tool_choice: 'auto',
+      include: ['item.input_audio_transcription.logprobs'],
+    },
+  };
+}
+
 // ─── Director persona / instructions ──────────────────────────────────────
 // Pinned here so it's auditable from one place. Hard-coded into the session
 // config at mint time. Pass 3 (persona refinements) + Pass 4 (anti-slop)
