@@ -39,17 +39,30 @@ loadDotenv({ path: resolve(REPO_ROOT, '.env') });
 loadDotenv({ path: resolve(APP_DIR, '.env') });
 
 // ───────────────────────────────────────────────────────────────────────────
-// Director chat window geometry.
+// Director Strip overlay geometry — slim right-edge pill that grows per
+// state via the `strip.resize` IPC (state-driven Hive/listening sizes).
 // ───────────────────────────────────────────────────────────────────────────
-const DIRECTOR_WINDOW_WIDTH = 480;
-const DIRECTOR_WINDOW_HEIGHT = 720;
+const STRIP_WIDTH = 12;
+const STRIP_HEIGHT = 180;
+const STRIP_EDGE_OFFSET = 20;
+const STRIP_MAX_WIDTH = 320;
+const STRIP_MAX_HEIGHT = 480;
 
 let stripWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let quittingExplicitly = false;
 
-function computeStripBounds(): { width: number; height: number } {
-  return { width: DIRECTOR_WINDOW_WIDTH, height: DIRECTOR_WINDOW_HEIGHT };
+function computeStripBounds(): {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} {
+  const display = screen.getPrimaryDisplay();
+  const { workArea } = display;
+  const x = workArea.x + workArea.width - STRIP_WIDTH - STRIP_EDGE_OFFSET;
+  const y = workArea.y + Math.round((workArea.height - STRIP_HEIGHT) / 2);
+  return { x, y, width: STRIP_WIDTH, height: STRIP_HEIGHT };
 }
 
 function createStripWindow(): BrowserWindow {
@@ -304,11 +317,22 @@ function registerIpcHandlers(): void {
   });
 
   // ─── window.strip.resize (W2) ────────────────────────────────────────
-  // Legacy renderer calls still arrive on stripState changes. Director is
-  // now a fixed-size chat window, so acknowledge without resizing.
+  // The renderer requests Strip size changes per stripState (listening
+  // expands, Hive grows further). Re-anchor to the right edge on every
+  // resize so the strip "grows leftward" instead of drifting off-screen.
   ipcMain.handle(
     IpcChannel.WindowStripResize,
-    async (_evt, _dims: StripResizeRequest): Promise<StripResizeResponse> => {
+    async (_evt, dims: StripResizeRequest): Promise<StripResizeResponse> => {
+      if (!stripWindow || stripWindow.isDestroyed()) {
+        return { ok: false, error: 'no strip window' };
+      }
+      const display = screen.getPrimaryDisplay();
+      const { workArea } = display;
+      const width = Math.min(Math.max(dims.width, STRIP_WIDTH), STRIP_MAX_WIDTH);
+      const height = Math.min(Math.max(dims.height, STRIP_HEIGHT), STRIP_MAX_HEIGHT);
+      const x = workArea.x + workArea.width - width - STRIP_EDGE_OFFSET;
+      const currentY = stripWindow.getBounds().y;
+      stripWindow.setBounds({ x, y: currentY, width, height }, true);
       return { ok: true };
     },
   );
@@ -334,6 +358,21 @@ app.whenReady().then(() => {
   // Canvas positions itself relative to the Strip — hand over the ref
   // before pre-creating the Canvas window.
   setStripWindow(stripWindow);
+
+  // Re-anchor Strip when monitors/resolutions change so it stays pinned
+  // to the right edge of the (possibly new) primary display.
+  const reanchorStrip = (): void => {
+    if (!stripWindow || stripWindow.isDestroyed()) return;
+    const bounds = stripWindow.getBounds();
+    const display = screen.getPrimaryDisplay();
+    const { workArea } = display;
+    const x = workArea.x + workArea.width - bounds.width - STRIP_EDGE_OFFSET;
+    const y = workArea.y + Math.round((workArea.height - bounds.height) / 2);
+    stripWindow.setBounds({ x, y, width: bounds.width, height: bounds.height });
+  };
+  screen.on('display-metrics-changed', reanchorStrip);
+  screen.on('display-added', reanchorStrip);
+  screen.on('display-removed', reanchorStrip);
   // Pre-create the Canvas window hidden so first open is instant.
   createCanvasWindow();
   registerCanvasIpc();
