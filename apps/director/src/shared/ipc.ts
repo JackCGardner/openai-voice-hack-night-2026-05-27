@@ -85,6 +85,17 @@ export const IpcChannel = {
   AskShow: 'ask.show',
   /** Renderer → main: user answered (or timeout fired). */
   AskAnswer: 'ask.answer',
+
+  // ─── Append-only additions (see docs/contracts.md § 13.1) ─────────────
+  // Each new entry on its own line, signed with worker comment.
+  // Examples (uncomment + edit when you add yours):
+  //   PlannerConsult: 'planner.consult',          // Worker 1 — P3
+  //   PlannerReasoningDelta: 'planner.reasoning', // Worker 1 — P3
+  //   CodexEvent: 'codex.event',                  // Worker 1 — P4
+  //   SidestoreSnapshot: 'sidestore.snapshot',    // Worker 3 — P3
+  //   AudioCueRequest: 'audio.cue.request',       // Worker 3 — P5
+  // Do NOT modify entries above this marker without a contract change
+  // (docs(contracts): change <name> commit).
 } as const;
 
 export type IpcChannel = (typeof IpcChannel)[keyof typeof IpcChannel];

@@ -1,6 +1,6 @@
 # Director — Contracts
 
-> **Version**: 2026-05-27.2
+> **Version**: 2026-05-27.3
 > **Status**: Source of truth for cross-worker integration. Every agent prompt MUST point at this doc. Every contract change is a commit that updates the version above.
 
 This file is the single shared boundary between workers. If two workers are about to touch the same shape, this is where they agree on it BEFORE writing code. The hackathon retrospective made the diagnosis: subsystems worked in isolation; the integration boundary failed because no canonical contract existed. This is that document.
@@ -403,23 +403,47 @@ Custom events on `window` for renderer-internal pub/sub.
 
 ## 8. File ownership
 
-Each path has one owning role. Cross-role edits require the doc to update first.
+Each path has one owning worker. Cross-worker edits require a doc commit first.
 
-| Path | Owner role | Notes |
+### 8.1 Worker → role mapping
+
+| Worker | Role label | Scope |
 |---|---|---|
-| `apps/director/src/main/*` | **MAIN** | Electron main process |
-| `apps/director/src/preload/*` | **MAIN** | Bridges — main owns these |
-| `apps/director/src/renderer/src/realtime/*` | **VOICE** | WebRTC client + hooks |
-| `apps/director/src/renderer/src/state/*` | **STATE** | Zustand store + selectors + sim |
-| `apps/director/src/renderer/src/components/*` | **UI** | Strip + AgentRow + chat UI |
-| `apps/director/src/renderer/src/canvas/*` | **CANVAS** | Canvas window UI |
-| `apps/director/src/renderer/src/styles/*` | **UI** | globals.css + tokens |
-| `apps/director/src/shared/*` | **shared** | Two-step rule: doc commit before code |
-| `apps/director/src/renderer/src/assets/*` | **CANVAS** | Pre-gen images |
-| `examples/mixtape/*` | **MIXTAPE** | Demo target |
-| `docs/*` | **docs** | Read by all, edited by orchestrator |
+| **Main** | `ORCH` | Orchestrator (me / this Claude session). Maintains contracts.md, dispatches workers, reviews at gates, owns cross-cutting integration that no single worker can do alone. No code files owned outright — but Main may pre-stake markers in shared files (see § 13.1). |
+| **Worker 1** | `MAIN` | Electron main process |
+| **Worker 2** | `VOICE` | Realtime WebRTC + session lifecycle |
+| **Worker 3** | `STATE` | Zustand + IPC contracts + sim + side store |
+| **Worker 4** | `UI` | Strip + Chat + captions + onboarding |
+| **Worker 5** | `CANVAS` | Canvas BrowserWindow + GenUI components |
 
-**Role codes** for dispatch prompts: `MAIN / VOICE / STATE / UI / CANVAS / MIXTAPE`.
+### 8.2 Path → owner
+
+| Path | Owner | Notes |
+|---|---|---|
+| `apps/director/src/main/index.ts` | W1 (MAIN) | Boot, windows, tray, hotkeys |
+| `apps/director/src/main/realtime.ts` | W1 (MAIN) | Token mint (proxy only) |
+| `apps/director/src/main/tool-router.ts` | W1 (MAIN) | Tool dispatch |
+| `apps/director/src/main/canvas.ts` | W5 (CANVAS) | Canvas window lifecycle — file lives in main/ but Canvas owns |
+| `apps/director/src/main/planner.ts` (new, P3) | W1 (MAIN) | gpt-5.5 client |
+| `apps/director/src/main/codex-pool.ts` (new, P4) | W1 (MAIN) | Codex spawn manager |
+| `apps/director/src/main/side-store.ts` (new, P3) | **W3 (STATE)** | Physically in main/ but owned by W3 — implements state persistence contract |
+| `apps/director/src/preload/index.ts` | W1 (MAIN) | Strip preload |
+| `apps/director/src/preload/canvas.ts` | W5 (CANVAS) | Canvas preload |
+| `apps/director/src/renderer/src/realtime/*` | W2 (VOICE) | WebRTC client + RealtimeClient class |
+| `apps/director/src/renderer/src/state/*` | W3 (STATE) | Store + sim + selectors + ipcSync |
+| `apps/director/src/renderer/src/components/*` | W4 (UI) | Strip components + chat |
+| `apps/director/src/renderer/src/canvas/*` | W5 (CANVAS) | Canvas window React tree |
+| `apps/director/src/renderer/src/styles/*` | W4 (UI) | globals.css |
+| `apps/director/src/renderer/src/assets/*` | W5 (CANVAS) | Pre-gen images |
+| `apps/director/src/renderer/src/hooks/*` | **shared** | Each hook file owned by the worker who wrote it — see § 13.2 App.tsx convention |
+| `apps/director/src/renderer/src/audio/*` (new, P5) | W3 (STATE) | Audio cue synthesis — state-driven |
+| `apps/director/src/renderer/src/App.tsx` | W4 (UI) | Only W4 edits — see § 13.2 |
+| `apps/director/src/shared/state.ts` | W3 (STATE) | Canonical state types |
+| `apps/director/src/shared/ipc.ts` | **shared (anchor)** | See § 13.1 reserved-extension anchor |
+| `apps/director/src/shared/realtime.ts` | W2 (VOICE) | Realtime types + DIRECTOR_INSTRUCTIONS |
+| `apps/director/src/shared/canvas-ipc.ts` | W5 (CANVAS) | Canvas channels (separate from main IPC) |
+| `examples/mixtape/*` | Phase 0 done | No active worker; if real Codex completes TODOs (P4), Worker 5 verifies the iframe punchline |
+| `docs/*` | Main | Workers may read freely. Edits via doc-commit (see § 11). |
 
 ---
 
@@ -531,6 +555,84 @@ CANNOT touch: <list of paths owned by other roles>
 - `git add → commit → push` after each task.
 - App must launch after every commit.
 ```
+
+---
+
+## 13. Anti-collision protocol
+
+Distilled from the hackathon retrospective. The exact bug that broke us was two workers (W1 + W3) both editing `shared/ipc.ts` in the same window without coordination. Below codifies the conventions that prevent it.
+
+### 13.1 Reserved-extension anchor (shared/ipc.ts and shared/state.ts)
+
+Files multiple workers extend get a clearly labeled marker block. Workers **append below the marker**, on new lines. No worker rewrites or reorders existing entries.
+
+In `apps/director/src/shared/ipc.ts`, the marker looks like:
+
+```ts
+// ─── Append-only additions (see docs/contracts.md § 13.1) ──────────────
+// Each new entry on its own line. Signed with worker comment.
+//   PlannerConsult: 'planner.consult',  // Worker 1 — P3
+//   CodexEvent: 'codex.event',          // Worker 1 — P4
+// Do not modify entries above this marker without a contract change.
+```
+
+If you need to MODIFY an existing entry, that's a contract change — doc commit to `contracts.md` first, then code.
+
+Main pre-stakes this marker before any phase that introduces new channels. Workers append below.
+
+### 13.2 The App.tsx hook convention
+
+`apps/director/src/renderer/src/App.tsx` is owned exclusively by Worker 4 (UI). Any other worker that needs a side effect, listener, or hook in the renderer:
+
+1. Writes a hook file in `apps/director/src/renderer/src/hooks/` (e.g., `useEscalationBridge.ts`, `useReconnectNotice.ts`, `useAudioCueRouter.ts`).
+2. Exports a default function taking whatever it needs as parameters; returns void or a cleanup.
+3. Worker 4 imports + mounts it in App.tsx as a single one-line call. Worker 4 is the only writer to App.tsx.
+
+This way no two workers ever edit App.tsx at the same time.
+
+### 13.3 Path-vs-role ownership
+
+File path doesn't determine ownership. The owner is named in § 8.2. Path-vs-role exceptions:
+
+| File | Path implies | Actually owned by | Why |
+|---|---|---|---|
+| `src/main/side-store.ts` | W1 (MAIN process) | **W3 (STATE)** | Implements the state persistence contract; main process is just where Node FS lives |
+| `src/main/canvas.ts` | W1 (MAIN process) | **W5 (CANVAS)** | Canvas window lifecycle is Canvas's concern |
+| `src/preload/canvas.ts` | W1 (MAIN process) | **W5 (CANVAS)** | Same — Canvas owns its bridge |
+| `src/renderer/src/audio/*` | W4 (UI) | **W3 (STATE)** | Audio cues triggered by state machine; not visual |
+
+When in doubt, propose a row in § 8.2 first.
+
+### 13.4 New-file conflict resolution
+
+Two workers both proposing the same new file: first one to commit a `docs(contracts): propose <path>` claims ownership. Section 8.2 row added in the same commit.
+
+### 13.5 Pre-dispatch collision check (Main's job before any batch)
+
+Before dispatching a parallel batch, Main:
+
+1. Walks the Gantt for the time window of the batch
+2. For each shared file, lists workers active in that window
+3. Resolves any collision via one of:
+   - **Sequencing** — one worker waits for the other to commit + push first
+   - **Splitting** — extract conflict zone into a new file owned by one worker
+   - **Anchor pattern** — apply § 13.1 if it's a shared types/IPC file
+   - **Hook pattern** — apply § 13.2 if it's App.tsx
+
+The current resolution table for Phase 1–6 lives in `docs/build-plan.html` (under Smoke Test).
+
+### 13.6 Critical-path serialization
+
+If Worker A's task depends on Worker B's commit, the dispatch prompt for Worker A includes:
+
+```
+## Wait for
+- Worker B has pushed commit matching message regex "feat(.*): <thing>" within the last hour
+- Verify with: git log --oneline | head -10
+- If not yet present, STOP and report; Main will re-dispatch when B is ready.
+```
+
+No worker assumes another's deliverable is on `main`. They verify.
 
 ---
 
