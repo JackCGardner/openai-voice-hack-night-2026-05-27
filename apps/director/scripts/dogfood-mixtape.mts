@@ -128,14 +128,12 @@ interface CleanupCtx {
   originalBranch: string | null;
   serverProc: ChildProcess | null;
   liveAgentIds: string[];
-  reservedRefs: string[];
 }
 const ctx: CleanupCtx = {
   branchToDelete: null,
   originalBranch: null,
   serverProc: null,
   liveAgentIds: [],
-  reservedRefs: [],
 };
 
 async function cleanup(): Promise<void> {
@@ -176,9 +174,6 @@ async function cleanup(): Promise<void> {
       '-D',
       ctx.branchToDelete,
     ]);
-  }
-  for (const ref of ctx.reservedRefs) {
-    await sh('git', ['-C', TARGET_REPO, 'update-ref', '-d', ref]);
   }
 }
 
@@ -243,8 +238,6 @@ interface AgentTrace {
   branch: string | null;
   /** SHA captured synchronously inside agent_finished (before worktree cleanup). */
   capturedSha: string | null;
-  /** Snapshot ref written before cleanup so the SHA survives `git branch -D`. */
-  reservedRef: string | null;
   events: CodexEvent[];
   counts: Record<string, number>;
   finished: boolean;
@@ -258,7 +251,6 @@ function makeTrace(id: string): AgentTrace {
     worktree: null,
     branch: null,
     capturedSha: null,
-    reservedRef: null,
     events: [],
     counts: {},
     finished: false,
@@ -273,18 +265,16 @@ function makeTrace(id: string): AgentTrace {
  * SYNCHRONOUSLY (our handler runs to completion), THEN it does
  * `await record.handle.cleanup()` (async) which deletes the worktree and
  * the branch. So execFileSync here is guaranteed to run while the
- * worktree still exists. We:
- *   1. Auto-commit any uncommitted working-tree changes (the agent's task
- *      asks them to commit, but we don't trust that).
- *   2. Read HEAD.
- *   3. Stash a `refs/dogfood/<sessionId>/<agentId>` ref pointing at HEAD
- *      so the SHA survives the upcoming `git branch -D <agent-branch>`
- *      that the pool's cleanup runs.
+ * worktree still exists.
+ *
+ * We auto-commit any uncommitted changes (excluding AGENTS.md, which the
+ * pool injected into the worktree root as the agent's task spec — it
+ * doesn't belong in the merged history). Then capture HEAD. The commit
+ * object survives `git branch -D` for ~2 weeks until git gc.
  */
 function captureAgentSha(trace: AgentTrace): void {
   if (!trace.worktree) return;
   try {
-    // Auto-commit any leftover changes in the worktree.
     const status = execFileSync('git', [
       '-C',
       trace.worktree,
@@ -295,19 +285,79 @@ function captureAgentSha(trace: AgentTrace): void {
       .trim();
     if (status.length > 0) {
       log(`[${trace.id}] auto-committing leftover working-tree changes`);
-      execFileSync('git', ['-C', trace.worktree, 'add', '-A']);
+      // Exclude AGENTS.md — the pool wrote it into the worktree root as
+      // the agent's task spec. It's not part of the agent's deliverable
+      // and would collide with the user's working tree on cherry-pick.
       execFileSync('git', [
         '-C',
         trace.worktree,
-        '-c',
-        'user.email=director@local',
-        '-c',
-        'user.name=Director Dogfood',
-        'commit',
-        '-m',
-        `dogfood: snapshot ${trace.id} working tree`,
-        '--allow-empty',
+        'add',
+        '-A',
+        '--',
+        '.',
+        ':(exclude)AGENTS.md',
       ]);
+      // If the agent already committed AGENTS.md themselves, strip it
+      // from HEAD before our auto-commit. Cheap to run unconditionally.
+      const inHead = execFileSync('git', [
+        '-C',
+        trace.worktree,
+        'ls-tree',
+        '-r',
+        '--name-only',
+        'HEAD',
+      ])
+        .toString()
+        .split('\n')
+        .includes('AGENTS.md');
+      if (inHead) {
+        log(`[${trace.id}] removing AGENTS.md from agent's HEAD commit`);
+        execFileSync('git', [
+          '-C',
+          trace.worktree,
+          '-c',
+          'user.email=director@local',
+          '-c',
+          'user.name=Director Dogfood',
+          'rm',
+          '--cached',
+          'AGENTS.md',
+        ]);
+        execFileSync('git', [
+          '-C',
+          trace.worktree,
+          '-c',
+          'user.email=director@local',
+          '-c',
+          'user.name=Director Dogfood',
+          'commit',
+          '--amend',
+          '--no-edit',
+        ]);
+      }
+      // Only commit if we still have staged changes after the exclusion.
+      const staged = execFileSync('git', [
+        '-C',
+        trace.worktree,
+        'diff',
+        '--cached',
+        '--name-only',
+      ])
+        .toString()
+        .trim();
+      if (staged.length > 0) {
+        execFileSync('git', [
+          '-C',
+          trace.worktree,
+          '-c',
+          'user.email=director@local',
+          '-c',
+          'user.name=Director Dogfood',
+          'commit',
+          '-m',
+          `dogfood: snapshot ${trace.id} working tree`,
+        ]);
+      }
     }
     const sha = execFileSync('git', [
       '-C',
@@ -318,13 +368,7 @@ function captureAgentSha(trace: AgentTrace): void {
       .toString()
       .trim();
     trace.capturedSha = sha;
-    // Stash a ref in the *target* repo (same .git store as the worktree)
-    // so it survives the pool's `git branch -D <agent-branch>` cleanup.
-    const refName = `refs/dogfood/${SESSION_ID}/${trace.id}`;
-    execFileSync('git', ['-C', TARGET_REPO, 'update-ref', refName, sha]);
-    trace.reservedRef = refName;
-    ctx.reservedRefs.push(refName);
-    log(`[${trace.id}] captured HEAD ${sha.slice(0, 8)} → ${refName}`);
+    log(`[${trace.id}] captured HEAD ${sha.slice(0, 8)}`);
   } catch (err) {
     logErr(
       `[${trace.id}] SHA capture failed:`,
@@ -672,11 +716,12 @@ async function main(): Promise<void> {
   ]);
 
   // Sanity: confirm both target files no longer say "not implemented" / 501.
+  // git show paths are repo-root-relative, not cwd-relative.
   const storeText = execFileSync('git', [
     '-C',
     TARGET_REPO,
     'show',
-    'HEAD:lib/store.ts',
+    'HEAD:examples/mixtape/lib/store.ts',
   ]).toString();
   if (/not implemented yet/i.test(storeText)) {
     throw new Error('lib/store.ts still contains "not implemented yet"');
@@ -685,7 +730,7 @@ async function main(): Promise<void> {
     '-C',
     TARGET_REPO,
     'show',
-    'HEAD:app/api/mixtape/[id]/route.ts',
+    'HEAD:examples/mixtape/app/api/mixtape/[id]/route.ts',
   ]).toString();
   if (/not implemented yet/i.test(routeText) || /\b501\b/.test(routeText)) {
     throw new Error(
