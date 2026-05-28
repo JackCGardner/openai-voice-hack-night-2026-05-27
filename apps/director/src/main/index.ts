@@ -23,6 +23,7 @@ import {
   getCanvasWindow,
   setStripWindow,
 } from './canvas.js';
+import { registerToolRouterIpc } from './tool-router.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
@@ -77,13 +78,13 @@ function createStripWindow(): BrowserWindow {
     movable: false,
     minimizable: false,
     maximizable: false,
+    closable: false,
     fullscreenable: false,
     skipTaskbar: true,
     hasShadow: false,
     roundedCorners: true,
     vibrancy: 'under-window',
     visualEffectState: 'active',
-    titleBarStyle: 'hidden',
     type: 'panel',
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
@@ -288,38 +289,12 @@ function registerIpcHandlers(): void {
     },
   );
 
-  // ─── tool.call (W1.tools) ────────────────────────────────────────────
-  // The renderer that owns the WebRTC peer forwards every model tool
-  // call into main. Main re-broadcasts to all renderers (Strip + Canvas)
-  // so any window can render UI / kick off side-effects. The handler
-  // returns immediately with a stub `{ok: true}` — W3/W4 swap in real
-  // tool execution later.
-  ipcMain.handle(
-    IpcChannel.ToolCall,
-    async (evt, req: ToolCallRequest): Promise<ToolCallResponse> => {
-      const startedAt = Date.now();
-      console.log(`[director] tool.call name=${req.name} callId=${req.callId}`);
-
-      // Broadcast to every other renderer (skip the sender). The sender
-      // already has the request locally; rebroadcasting back risks loops.
-      for (const win of BrowserWindow.getAllWindows()) {
-        if (win.webContents.id === evt.sender.id) continue;
-        if (win.isDestroyed()) continue;
-        try {
-          win.webContents.send(IpcChannel.ToolCall, req);
-        } catch (err) {
-          console.warn('[director] tool.call broadcast failed', err);
-        }
-      }
-
-      return {
-        ok: true,
-        callId: req.callId,
-        output: {},
-        latencyMs: Date.now() - startedAt,
-      };
-    },
-  );
+  // ─── tool.call ───────────────────────────────────────────────────────
+  // The W3 tool-router owns the canonical handler — it dispatches to one
+  // of four tool implementations (render_canvas / dispatch_agent_mock /
+  // ask_user / update_harness) and pushes the resulting state mutations
+  // into the strip renderer via `state.patch`. `registerToolRouterIpc`
+  // is called from app.whenReady once the strip window exists.
 
   // ─── mic.status (W1.hotkey) ──────────────────────────────────────────
   // Renderer with the peer publishes mic state; rebroadcast so every
@@ -386,6 +361,7 @@ app.whenReady().then(() => {
   createTray();
   registerGlobalHotkey();
   registerIpcHandlers();
+  registerToolRouterIpc(stripWindow);
 
   // Recompute strip position if displays change (lid open / monitor unplug).
   screen.on('display-metrics-changed', () => {

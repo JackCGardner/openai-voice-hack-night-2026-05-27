@@ -124,6 +124,11 @@ html {
 
 body {
   overflow: hidden;
+  background: transparent;
+}
+
+#root {
+  background: transparent;
 }
 
 /* Allow click-through on interactive elements (e.g. dev switcher buttons). */
