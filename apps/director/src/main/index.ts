@@ -64,7 +64,10 @@ function createStripWindow(): BrowserWindow {
     movable: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
-      sandbox: true,
+      // sandbox:false is required because the preload is an ESM (.mjs) file —
+      // sandbox:true + non-.cjs preload silently breaks contextBridge.
+      // See docs/contracts.md § 9.2.
+      sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
     },
