@@ -72,6 +72,19 @@ export const IpcChannel = {
 
   // ─── window.* (Strip geometry, right-edge anchored in main) ───────────
   WindowStripResize: 'window.strip.resize',
+
+  // ─── canvas.* (tool-router → canvas window — convenience alias) ────────
+  // Canonical canvas channels live in shared/canvas-ipc.ts; W3's
+  // tool-router re-emits `canvas.render` here so anything subscribed to
+  // the main bus can observe it. The Canvas BrowserWindow listens on
+  // `CanvasIpcChannel.Render` (same string value).
+  CanvasRender: 'canvas.render',
+
+  // ─── ask.* (tool-router ⇄ strip renderer) ─────────────────────────────
+  /** Main → renderer: open an ask-user prompt (voice or click resolves). */
+  AskShow: 'ask.show',
+  /** Renderer → main: user answered (or timeout fired). */
+  AskAnswer: 'ask.answer',
 } as const;
 
 export type IpcChannel = (typeof IpcChannel)[keyof typeof IpcChannel];
@@ -292,6 +305,41 @@ export interface StripResizeRequest {
 
 export type StripResizeResponse = { ok: true } | { ok: false; error: string };
 
+// ─── canvas.* payloads (tool-router convenience) ─────────────────────────
+
+/**
+ * Payload for `canvas.render` when re-broadcast on the main IPC bus. The
+ * Canvas BrowserWindow's renderer subscribes via `CanvasIpcChannel.Render`
+ * (same wire string) — see shared/canvas-ipc.ts for the authoritative
+ * payload type. This mirror is the minimal subset the tool-router fires.
+ */
+export interface CanvasRenderBroadcastPayload {
+  component: string;
+  props: Record<string, unknown>;
+  component_id?: string;
+  call_id?: string;
+  autoDismissMs?: number;
+}
+
+// ─── ask.* payloads ──────────────────────────────────────────────────────
+
+export interface AskShowPayload {
+  /** Unique id correlating this prompt with its eventual answer. */
+  ask_id: string;
+  /** Spoken / written question to surface to the user. */
+  question: string;
+  /** Optional canonical option labels. */
+  options?: string[];
+  /** Tool-call id, when the prompt originated from a tool router. */
+  call_id?: string;
+}
+
+export interface AskAnswerPayload {
+  ask_id: string;
+  /** User's resolved answer text. `"timeout"` if the prompt expired. */
+  answer: string;
+}
+
 // ─── Legacy boilerplate types (W1 scaffolding) ───────────────────────────
 
 export interface DormantState {
@@ -367,6 +415,9 @@ export interface IpcSendMap {
   [IpcChannel.AudioCue]: AudioCuePayload;
   [IpcChannel.AppReady]: AppReadyPayload;
   [IpcChannel.AppError]: AppErrorPayload;
+  [IpcChannel.CanvasRender]: CanvasRenderBroadcastPayload;
+  [IpcChannel.AskShow]: AskShowPayload;
+  [IpcChannel.AskAnswer]: AskAnswerPayload;
 }
 
 /** Invoke-style channels (request → ack). */

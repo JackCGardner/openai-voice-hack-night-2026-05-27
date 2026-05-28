@@ -13,10 +13,28 @@ import {
   stopMixtapeDemo,
   isAwaitingResolution,
 } from './state/sim';
+
 // EscalationDetail was removed from state/sim; we now treat the
 // escalation CustomEvent payload as a structural shape rather than a
 // named type. W3 will reintroduce a typed contract here.
 type EscalationDetail = { reason?: string; agent?: string; [k: string]: unknown };
+
+// Pencil-matched dimensions per state. Kept in sync with main's
+// computeStripBounds() right-edge anchor.
+const STRIP_DIMS: Record<StripStateKind, { width: number; height: number }> = {
+  dormant: { width: 12, height: 180 },
+  connecting: { width: 38, height: 180 },
+  listening: { width: 38, height: 180 },
+  speaking: { width: 38, height: 180 },
+  thinking: { width: 38, height: 180 },
+  hive: { width: 280, height: 420 },
+  escalating: { width: 280, height: 420 },
+  error: { width: 12, height: 180 },
+  disconnected: { width: 12, height: 180 },
+};
+
+const IS_DEV =
+  typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production';
 
 async function devToolCall(name: string, args: Record<string, unknown>): Promise<void> {
   const bridge = window.director;
@@ -39,7 +57,7 @@ async function devToolCall(name: string, args: Record<string, unknown>): Promise
 
 export function App(): JSX.Element {
   const kind = useStore((s) => s.strip.kind);
-  const { client, status: realtimeStatus } = useRealtimeClient();
+  const { client, status: realtimeStatus, micStream, remoteStream } = useRealtimeClient();
 
   // Log Realtime lifecycle. W3 reflects this into store.setRealtimeStatus later.
   useEffect(() => {
@@ -76,6 +94,76 @@ export function App(): JSX.Element {
     });
   }, [client]);
 
+  // ── Drive stripState from real Realtime events ─────────────────────────
+  //
+  //  - mic mode flips to tap-open / hold-open → setListening
+  //  - response audio deltas → setSpeaking
+  //  - response.done → drift back to listening (if mic still open) or rest
+  //
+  //  The transitions are guarded by the canonical store's allowed-from
+  //  sets in store.ts §setListening / §setSpeaking, so a misfire just logs.
+  useEffect(() => {
+    const offMicMode = client.on('micMode', (mode) => {
+      const s = useStore.getState();
+      if (mode === 'tap-open' || mode === 'hold-open') {
+        if (
+          s.strip.kind === 'dormant' ||
+          s.strip.kind === 'speaking' ||
+          s.strip.kind === 'hive' ||
+          s.strip.kind === 'thinking'
+        ) {
+          s.setListening(mode === 'hold-open' ? 'hold' : 'tap');
+        }
+      } else if (mode === 'muted' && s.strip.kind === 'listening') {
+        s.mute();
+      }
+    });
+
+    let currentItemId: string | null = null;
+    const offEvent = client.on('event', (evt) => {
+      const type = evt.type as string | undefined;
+      if (!type) return;
+
+      // First sign of model audio output → transition to speaking.
+      if (
+        type === 'response.output_audio.delta' ||
+        type === 'response.audio.delta' ||
+        type === 'response.output_audio_transcript.delta'
+      ) {
+        const itemId = (evt.item_id as string | undefined) ?? currentItemId ?? 'response';
+        currentItemId = itemId;
+        const s = useStore.getState();
+        if (
+          s.strip.kind === 'listening' ||
+          s.strip.kind === 'thinking' ||
+          s.strip.kind === 'hive' ||
+          s.strip.kind === 'dormant'
+        ) {
+          s.setSpeaking(itemId, 'commentary');
+        }
+      }
+
+      // Response finished → if the mic is still open the user can speak
+      // immediately; otherwise drift toward hive (if work) or dormant.
+      if (type === 'response.done') {
+        currentItemId = null;
+        const s = useStore.getState();
+        if (s.strip.kind === 'speaking') {
+          if (client.micMode === 'tap-open' || client.micMode === 'hold-open') {
+            s.setListening(client.micMode === 'hold-open' ? 'hold' : 'tap');
+          } else {
+            s.mute();
+          }
+        }
+      }
+    });
+
+    return () => {
+      offMicMode();
+      offEvent();
+    };
+  }, [client]);
+
   // Listen for the sim's escalation event. The orchestration layer will
   // eventually inject a server-initiated Realtime response here; for now
   // a console log proves the pipe works.
@@ -88,11 +176,24 @@ export function App(): JSX.Element {
     return () => window.removeEventListener('director:escalation', onEscalation);
   }, []);
 
-  // Dev switcher: 1/2/3/4 cycle Dormant/Listening/Speaking/Thinking;
-  // 5 enters Hive; D starts the Mixtape sim; R resolves Jin; X stops;
-  // T fires a single dispatch_agent_mock through the tool router;
-  // H fires update_harness. Modifier-key shortcuts are ignored.
+  // ── Auto-resize the Strip window per state ─────────────────────────────
+  //  Main re-anchors to the right edge (workArea-aware) and animates the
+  //  bounds change. No-op in non-Electron contexts.
   useEffect(() => {
+    const bridge = window.director;
+    if (!bridge?.window?.resizeStrip) return;
+    const dims = STRIP_DIMS[kind];
+    bridge.window.resizeStrip(dims).catch((err) => {
+      console.warn('[strip] resize failed', err);
+    });
+  }, [kind]);
+
+  // Dev switcher — only in development. 1-7 cycle strip states; D starts
+  // the Mixtape sim; R resolves Jin; X stops; T/H fire tool-router smoke
+  // tests. Real interactions (hotkey + Realtime events) drive the strip
+  // in production.
+  useEffect(() => {
+    if (!IS_DEV) return;
     const onKey = (e: KeyboardEvent): void => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const map: Record<string, () => void> = {
@@ -145,7 +246,6 @@ export function App(): JSX.Element {
         },
         x: () => stopMixtapeDemo(),
         X: () => stopMixtapeDemo(),
-        // Tool-router smoke tests.
         t: () =>
           void devToolCall('dispatch_agent_mock', {
             name: 'Maya',
@@ -179,10 +279,14 @@ export function App(): JSX.Element {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  return renderStrip(kind);
+  return renderStrip(kind, micStream, remoteStream);
 }
 
-function renderStrip(kind: StripStateKind): JSX.Element {
+function renderStrip(
+  kind: StripStateKind,
+  micStream: MediaStream | null,
+  remoteStream: MediaStream | null,
+): JSX.Element {
   switch (kind) {
     case 'dormant':
     case 'connecting':
@@ -190,9 +294,9 @@ function renderStrip(kind: StripStateKind): JSX.Element {
     case 'error':
       return <DormantStrip />;
     case 'listening':
-      return <ListeningStrip />;
+      return <ListeningStrip audioStream={micStream} />;
     case 'speaking':
-      return <SpeakingStrip />;
+      return <SpeakingStrip audioStream={remoteStream} />;
     case 'thinking':
       return <ThinkingStrip />;
     case 'hive':

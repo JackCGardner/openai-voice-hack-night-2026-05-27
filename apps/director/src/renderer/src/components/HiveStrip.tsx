@@ -1,35 +1,33 @@
 import { AnimatePresence } from 'framer-motion';
 import type { JSX } from 'react';
-import { useDirectorStore, type Agent } from '../state/store';
+import { useAgentsOrderedForHive } from '../state/selectors';
+import { useStore } from '../state/store';
 import { AgentRow } from './AgentRow';
-
-const STATUS_RANK: Record<Agent['status'], number> = {
-  blocked: 0,
-  working: 1,
-  idle: 2,
-  done: 3,
-};
-
-interface HiveStripProps {
-  /** Override store agents (used by dev switcher to demo Blocked / Done states). */
-  agents?: Agent[];
-  /** Border tint — amber on blocked variant, green on done. */
-  variant?: 'working' | 'blocked' | 'done';
-}
 
 /**
  * Hive Strip — vertical column of agent rows.
  * Pencil source: design.pen / Strip / Hive Working (v2ONzK).
  *
  * Geometry: 280px wide × 420px tall, 14px radius, padding 16/8.
- * Order:    blocked → working → idle → done, dispatch order within group.
- * Reorder:  Framer Motion layout prop springs rows into place.
+ * Order:    blocked → working → thinking → spawning → done → error,
+ *           dispatch order within group (useAgentsOrderedForHive).
+ * Variant:  derived from canonical strip.kind ('escalating' → blocked tint;
+ *           all agents done → green-ish tint).
  */
-export function HiveStrip({ agents: agentsProp, variant = 'working' }: HiveStripProps): JSX.Element {
-  const storeAgents = useDirectorStore((s) => s.agents);
-  const agents = agentsProp ?? storeAgents;
+export function HiveStrip(): JSX.Element {
+  const agents = useAgentsOrderedForHive();
+  const kind = useStore((s) => s.strip.kind);
 
-  const sorted = [...agents].sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status]);
+  const variant: 'working' | 'blocked' | 'done' = (() => {
+    if (kind === 'escalating') return 'blocked';
+    if (agents.length > 0 && agents.every((a) => a.status === 'done' || a.status === 'killed')) {
+      return 'done';
+    }
+    if (agents.some((a) => a.status === 'blocked' || a.status === 'error')) {
+      return 'blocked';
+    }
+    return 'working';
+  })();
 
   const borderColor =
     variant === 'blocked'
@@ -45,8 +43,7 @@ export function HiveStrip({ agents: agentsProp, variant = 'working' }: HiveStrip
         ? '0 0 32px rgba(88, 214, 141, 0.18)'
         : 'none';
 
-  const surfaceTint =
-    variant === 'blocked' ? '#100D0AE6' : '#0E0E10E6';
+  const surfaceTint = variant === 'blocked' ? '#100D0AE6' : '#0E0E10E6';
 
   return (
     <div className="strip-root">
@@ -68,7 +65,7 @@ export function HiveStrip({ agents: agentsProp, variant = 'working' }: HiveStrip
         }}
       >
         <AnimatePresence initial={false}>
-          {sorted.map((agent) => (
+          {agents.map((agent) => (
             <AgentRow key={agent.id} agent={agent} />
           ))}
         </AnimatePresence>

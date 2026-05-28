@@ -1,20 +1,18 @@
 import { motion, useReducedMotion } from 'framer-motion';
 import type { JSX } from 'react';
-import { useDirectorStore } from '../state/store';
+import { useStore } from '../state/store';
 
 /**
  * Thinking Strip — gpt-5.5 deep reasoning.
  * Pencil source: design.pen / Strip / Thinking (TiVyu).
  *
- * Geometry: 38px wide × 180px tall, 14px radius. Strip sits on right edge;
- *           reasoning trail fades upward to its left.
- * Visual:   PulseCore radial gradient (status-thinking blue), slow 2.4s
- *           breathing. Trail lines fade with age — newest brightest.
+ * Geometry: 38px wide × 180px tall, 14px radius. Strip on right edge,
+ *           reasoning trail fades up its left side. Trail is read from
+ *           the canonical `strip.trail` (only set while kind === 'thinking').
  */
 export function ThinkingStrip(): JSX.Element {
   const reduced = useReducedMotion();
-  const trail = useDirectorStore((s) => s.thinkingTrail);
-  // Newest line at bottom of array → render bottom-up.
+  const trail = useStore((s) => (s.strip.kind === 'thinking' ? s.strip.trail : []));
   const lines = trail.slice(-4);
 
   return (
@@ -40,7 +38,7 @@ export function ThinkingStrip(): JSX.Element {
         aria-hidden
       >
         {lines.map((line, idx) => {
-          const recency = (idx + 1) / lines.length; // 0 → faded, 1 → fresh
+          const recency = (idx + 1) / Math.max(lines.length, 1);
           return (
             <span
               key={`${idx}-${line}`}

@@ -1,19 +1,15 @@
 import { motion } from 'framer-motion';
 import type { JSX } from 'react';
-import type { Agent } from '../state/store';
+import type { Agent } from '../../../shared/state';
 
 const STATUS_FILL: Record<Agent['status'], string> = {
   working: 'var(--status-working)',
   blocked: 'var(--status-blocked)',
   done: 'var(--status-done)',
-  idle: 'var(--text-tertiary)',
-};
-
-const ACCENT: Record<Agent['accent'], string> = {
-  maya: 'var(--accent-maya)',
-  jin: 'var(--accent-jin)',
-  cleo: 'var(--accent-cleo)',
-  wren: 'var(--accent-wren)',
+  thinking: 'var(--status-thinking)',
+  spawning: 'var(--text-tertiary)',
+  error: 'var(--status-error)',
+  killed: 'var(--text-tertiary)',
 };
 
 interface AgentRowProps {
@@ -24,14 +20,15 @@ interface AgentRowProps {
  * AgentRow — one horizontal row inside the Hive Strip.
  * Pencil source: design.pen / AgentRow (gFDBG).
  *
- * Anti-slop notes from Pass 4: no cards, no progress bars. Status lives
- * only in the left disc; the name carries the agent's accent color.
- * Blocked rows pulse at 0.6s (--pulse-blocked); working/done are still.
+ * Anti-slop notes (Pass 4): no cards, no progress bars. Status lives only
+ * in the left disc; the name carries the agent's accent color. Blocked
+ * rows pulse at 0.6s (--pulse-blocked).
  */
 export function AgentRow({ agent }: AgentRowProps): JSX.Element {
   const statusFill = STATUS_FILL[agent.status];
-  const accent = ACCENT[agent.accent];
-  const dim = agent.status === 'done';
+  const dim = agent.status === 'done' || agent.status === 'killed';
+  const headline = agent.currentTask ?? agent.taskTrail[agent.taskTrail.length - 1] ?? '';
+  const files = agent.recentFiles.slice(-3).join(' · ');
 
   return (
     <motion.div
@@ -39,7 +36,7 @@ export function AgentRow({ agent }: AgentRowProps): JSX.Element {
       layoutId={agent.id}
       transition={{ type: 'spring', stiffness: 180, damping: 22 }}
       role="status"
-      aria-label={`${agent.name}, ${agent.role.toLowerCase()}, ${agent.status}, ${agent.trail}`}
+      aria-label={`${agent.name}, ${String(agent.role).toLowerCase()}, ${agent.status}, ${headline}`}
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -60,12 +57,12 @@ export function AgentRow({ agent }: AgentRowProps): JSX.Element {
         <motion.span
           aria-hidden
           animate={
-            agent.status === 'blocked'
+            agent.status === 'blocked' || agent.status === 'error'
               ? { opacity: [1, 0.45, 1] }
               : { opacity: 1 }
           }
           transition={
-            agent.status === 'blocked'
+            agent.status === 'blocked' || agent.status === 'error'
               ? { duration: 0.6, repeat: Infinity, ease: 'easeInOut' }
               : { duration: 0 }
           }
@@ -84,7 +81,7 @@ export function AgentRow({ agent }: AgentRowProps): JSX.Element {
             fontFamily: 'var(--font-sans)',
             fontSize: 14,
             fontWeight: 600,
-            color: accent,
+            color: agent.accentColor,
             letterSpacing: -0.1,
           }}
         >
@@ -100,12 +97,12 @@ export function AgentRow({ agent }: AgentRowProps): JSX.Element {
             letterSpacing: 0.5,
           }}
         >
-          {agent.role}
+          {String(agent.role).toUpperCase()}
         </span>
       </div>
 
       {/* Trail row (italic, indented to align with name baseline) */}
-      {agent.trail ? (
+      {headline ? (
         <div style={{ paddingLeft: 20 }}>
           <span
             style={{
@@ -114,18 +111,18 @@ export function AgentRow({ agent }: AgentRowProps): JSX.Element {
               fontSize: 12,
               fontWeight: 400,
               color:
-                agent.status === 'blocked'
+                agent.status === 'blocked' || agent.status === 'error'
                   ? 'var(--status-blocked)'
                   : 'var(--text-secondary)',
             }}
           >
-            {agent.trail}
+            {agent.status === 'blocked' && agent.blocker ? agent.blocker : headline}
           </span>
         </div>
       ) : null}
 
       {/* Files breadcrumb (mono, half-step smaller) */}
-      {agent.files ? (
+      {files ? (
         <div style={{ paddingLeft: 20 }}>
           <span
             style={{
@@ -135,7 +132,7 @@ export function AgentRow({ agent }: AgentRowProps): JSX.Element {
               color: 'var(--text-tertiary)',
             }}
           >
-            {agent.files}
+            {files}
           </span>
         </div>
       ) : null}
