@@ -105,13 +105,6 @@ h2 .note { color: var(--text-3); font-weight: 400; text-transform: none; letter-
   cursor: default; transition: filter 0.15s, transform 0.15s;
 }
 .bar:hover { filter: brightness(1.2); transform: translateY(-1px); z-index: 6; }
-.bar.done { background: rgba(155,155,160,0.22); border-color: rgba(155,155,160,0.45); color: var(--text-2); }
-.bar.done::after { content: " ✓"; color: var(--green); margin-left: 4px; }
-.bar.blocked { background: rgba(242,107,92,0.22); border-color: rgba(242,107,92,0.7); }
-.bar.blocked::after { content: " ⛔"; margin-left: 4px; }
-.bar.next { background: rgba(110,148,232,0.3); border-color: rgba(110,148,232,0.7); }
-.bar.next::after { content: " ▸"; color: var(--blue); margin-left: 4px; }
-.bar.crit { box-shadow: inset 0 0 0 2px rgba(242,107,92,0.7); }
 .bar .phase-tag { font-family: "JetBrains Mono", monospace; font-size: 9px; opacity: 0.6; margin-right: 5px; }
 
 .bar.role-ORCH { background: rgba(242,107,92,0.16); border-color: rgba(242,107,92,0.55); }
@@ -121,6 +114,15 @@ h2 .note { color: var(--text-3); font-weight: 400; text-transform: none; letter-
 .bar.role-UI { background: rgba(224,120,86,0.18); border-color: rgba(224,120,86,0.5); }
 .bar.role-CANVAS { background: rgba(150,112,160,0.18); border-color: rgba(150,112,160,0.5); }
 .bar.role-MIXTAPE { background: rgba(232,169,92,0.18); border-color: rgba(232,169,92,0.5); }
+
+/* Status overrides MUST come after role colors so they win the cascade. */
+.bar.done { background: rgba(155,155,160,0.18); border-color: rgba(155,155,160,0.4); color: var(--text-2); opacity: 0.85; }
+.bar.done::after { content: " ✓"; color: var(--green); margin-left: 4px; }
+.bar.blocked { background: rgba(242,107,92,0.28); border-color: rgba(242,107,92,0.75); color: var(--text); }
+.bar.blocked::after { content: " ⛔"; margin-left: 4px; }
+.bar.next { background: rgba(110,148,232,0.32); border-color: rgba(110,148,232,0.75); color: var(--text); }
+.bar.next::after { content: " ▸"; color: var(--blue); margin-left: 4px; }
+.bar.crit { box-shadow: inset 0 0 0 2px rgba(242,107,92,0.7); }
 
 /* Checkpoint columns (full-height vertical gates) */
 .gantt-overlay { position: absolute; top: 28px; left: 220px; right: 0; bottom: 0; pointer-events: none; z-index: 4; }
@@ -143,6 +145,14 @@ h2 .note { color: var(--text-3); font-weight: 400; text-transform: none; letter-
   pointer-events: auto; cursor: default;
 }
 
+/* Passed gates — green/muted instead of red/glowing */
+.cp-line.passed { background: var(--green); opacity: 0.25; }
+.cp-line.passed::after { background: linear-gradient(to right, rgba(88,214,141,0.08), transparent); }
+.cp-flag.passed {
+  border-color: rgba(88,214,141,0.55); color: var(--green);
+  box-shadow: 0 0 10px rgba(88,214,141,0.18);
+}
+
 /* Checkpoint detail cards */
 .cp-card {
   background: linear-gradient(135deg, rgba(242,107,92,0.06), rgba(242,107,92,0.02));
@@ -156,6 +166,13 @@ h2 .note { color: var(--text-3); font-weight: 400; text-transform: none; letter-
 .cp-card .sub { color: var(--text-2); font-size: 12px; line-height: 1.5; margin-bottom: 8px; }
 .cp-card ul { margin: 6px 0 0; padding-left: 18px; color: var(--text-2); font-size: 12px; line-height: 1.6; }
 
+.cp-card.passed {
+  background: linear-gradient(135deg, rgba(88,214,141,0.05), rgba(88,214,141,0.01));
+  border-color: rgba(88,214,141,0.25);
+}
+.cp-card.passed .head { border-bottom-color: rgba(88,214,141,0.15); }
+.cp-card.passed .id { background: rgba(88,214,141,0.18); color: var(--green); }
+
 /* Phase summary */
 .phase-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; margin-bottom: 8px; }
 .phase-card .head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
@@ -165,6 +182,7 @@ h2 .note { color: var(--text-3); font-weight: 400; text-transform: none; letter-
 .phase-card .body { color: var(--text-2); font-size: 12px; line-height: 1.55; margin-top: 6px; }
 .phase-card .lanes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .phase-card .lane-chip { font-size: 11px; padding: 3px 8px; border-radius: 5px; background: var(--surface-2); color: var(--text-2); display: inline-flex; gap: 4px; }
+.phase-card .lane-chip .role-ORCH { color: var(--crit); }
 .phase-card .lane-chip .role-MAIN { color: var(--blue); }
 .phase-card .lane-chip .role-VOICE { color: var(--teal); }
 .phase-card .lane-chip .role-STATE { color: var(--green); }
@@ -185,7 +203,7 @@ footer { margin-top: 32px; text-align: center; color: var(--text-3); font-size: 
 <header>
   <div>
     <h1>Director — Build Plan</h1>
-    <div class="sub">Post-hackathon · 6 workers in parallel · 4 review gates · 12-hour budget</div>
+    <div class="sub">Post-hackathon · 6 workers in parallel · 4 review gates · 16-hour budget (expanded from 12h to absorb P7 planner durability + expanded P6 continuity)</div>
   </div>
   <div class="spacer"></div>
   <div class="nav">
@@ -197,9 +215,9 @@ footer { margin-top: 32px; text-align: center; color: var(--text-3); font-size: 
 </header>
 
 <div class="banner">
-  <span class="pill">STATUS</span>
+  <span class="pill">NOW · ~8.5h / 16h</span>
   <div class="text">
-    <strong>P0–P4 shipped + reviewed.</strong> 4 independent sonnet reviewers (A/B/C/D) ran spot-checks; 4 blockers + 3 majors found and Main-fixed inline. Commits: <code>8abba41</code> (dispatch_agent_mock + update_harness schema) · <code>a8e19ea</code> (tool-router → side-store wiring) · <code>9a5d77e</code> (planner SSE hardening) · <code>e3ff649</code> (flushAgentWrites + dc.readyState + strip-small width). Reviews live in <code>docs/reviews/</code>.
+    <strong>P0–P4 base shipped, reviewed, and inline-fixed.</strong> 4 parallel sonnet reviewers (A/B/C/D) spot-checked the merged surface; 4 blockers + 3 majors + 5 minors surfaced and Main-fixed inline across 7 commits. Plan re-cut against <code>docs/vision.md</code> + <code>docs/architecture.md</code>: <strong>P6 expanded</strong> (added snapshot/meta writers, resume on launch, Codex hang watchdog, worktree merge fan-in, Canvas error boundary + degradation cards) and <strong>P7 added</strong> (planner durability — <code>previous_response_id</code> chaining, <code>responses.compact</code>, health-check probe, orchestrator.jsonl). Budget bumped 12h → 16h. Detail in <code>docs/remaining-phases.md</code>. Known cuts (3-tier→2-tier, no XState, no keychain) called out below.
   </div>
 </div>
 
@@ -232,6 +250,9 @@ footer { margin-top: 32px; text-align: center; color: var(--text-3); font-size: 
 <h2>Phase summary <span class="note">what each phase achieves</span></h2>
 <div id="phaseSummary"></div>
 
+<h2>Known scope cuts <span class="note">deliberately NOT in P5/P6/P7 — flag if any become demo-blockers</span></h2>
+<div id="knownCuts"></div>
+
 <h2>Parallelism rules <span class="note">from the hackathon retrospective</span></h2>
 <div class="box">
   <ul>
@@ -248,64 +269,74 @@ footer { margin-top: 32px; text-align: center; color: var(--text-3); font-size: 
 </footer>
 
 <script>
-const UNITS = 12; // 12-hour budget
+const UNITS = 16; // 16-hour budget (expanded from 12h to absorb P7 + expanded P6)
 
 // Workers (rows). Main = me (orchestrator). W1-W5 = parallel agents I dispatch.
 const workers = [
   {
     role: "ORCH", name: "Main", domain: "Orchestrator (me) · review gates · cross-cutting integration · contract maintenance",
     tasks: [
-      { id: "main.r1", phase: "R1", name: "Review P1 lanes — verify integration sound", t0: 2, t1: 2.5, status: "pending", crit: true, body: "Verify bridge fix + tool routing + escalation work together. Smoke-test full voice loop. Resolve any contract drift before P2 fires." },
-      { id: "main.r2", phase: "R2", name: "Review P2 — strip restoration", t0: 4.5, t1: 5, status: "pending", crit: true, body: "Pencil parity check across all 6 strip states. Resolve any cross-worker integration issues before P3+P4 batch fires." },
-      { id: "main.p3-cc", phase: "P3", name: "Cross-cutting: wire planner ↔ Realtime ↔ side-store", t0: 6, t1: 7.5, status: "pending", body: "Integration glue between W1's planner service, W2's consult_director tool, and W3's side store. Likely too cross-cutting for any single worker." },
-      { id: "main.r3", phase: "R3", name: "Review P3+P4 — 3-tier alive", t0: 7.5, t1: 8, status: "pending", crit: true, body: "Verify consult_director narrates planner reasoning. Real Codex pops in Hive. End-to-end Mixtape build via real agents." },
-      { id: "main.r4", phase: "R4", name: "Review P5+P6 — ship-ready", t0: 10, t1: 10.5, status: "pending", crit: true, body: "Final dry run of full 5-min demo. Captions, audio, session rotation all working." },
+      { id: "main.r1", phase: "R1", name: "R1 — verify P1 integration", t0: 2, t1: 2.5, status: "done", body: "Bridge + tool routing + escalation cross-tested. P2 cleared to fire." },
+      { id: "main.r2", phase: "R2", name: "R2 — verify Strip restoration", t0: 4.5, t1: 5, status: "done", body: "All 6 strip states verified against Pencil. P3+P4 batch cleared." },
+      { id: "main.p3-cc", phase: "P3", name: "Cross-cutting wiring (tool-router → side-store)", t0: 5.5, t1: 6.5, status: "done", body: "Commit a8e19ea — appendHarnessRule + appendDecision + queueAgentWrite + setLastCanvas wired through the tool-router so every Realtime tool persists." },
+      { id: "main.rs", phase: "R2.5", name: "Sonnet review batch (A · B · C · D)", t0: 6.5, t1: 7.5, status: "done", body: "4 parallel sonnet reviewers spot-checked the merged P1+P2+P3+P4 surface. 4 blockers + 3 majors + 5 minors surfaced. Reviews in docs/reviews/." },
+      { id: "main.fix", phase: "fix", name: "Inline fixes (7 commits)", t0: 7.5, t1: 8.5, status: "done", crit: true, body: "Main fixed all surfaced issues inline rather than re-dispatching workers. Commits 8abba41 (schemas) · a8e19ea (tool-router → side-store) · 9a5d77e (planner SSE) · e3ff649 (flush + dc.readyState + strip width) · 0e1b09b (contracts sync) · 08ec9ca (Mixtape Next 15). Workspace typecheck passes." },
+      { id: "main.r3", phase: "R3", name: "R3 — verify 3-tier alive + dogfood", t0: 9.5, t1: 10, status: "next", crit: true, body: "Verify consult_director narrates planner reasoning. Real Codex pops in Hive after W3 P4c lands. End-to-end Mixtape build via real agents after W5 P4d lands." },
+      { id: "main.p6d", phase: "P6", name: "Codex hang watchdog (cross-process)", t0: 10, t1: 11.5, status: "pending", crit: true, body: "Main-owned: stopwatch in codex-pool · proactive injection into planner · narration script to realtime. Three subsystems — needs full integration context. >60s no output → 'Maya seems stuck — kill or extend?' voice path." },
+      { id: "main.p6e", phase: "P6", name: "Worktree merge fan-in (cross-cutting)", t0: 11.5, t1: 13.5, status: "pending", crit: true, body: "Main-owned: pool batch.completed → worktree-merger policy decision (auto-merge non-overlap vs. Canvas approval card) → git ops → decisions.jsonl. Touches pool · Canvas · state · git. Policy call lives at the orchestrator level." },
+      { id: "main.p7c", phase: "P7", name: "Planner health-check probe (cross-cutting reads)", t0: 13.5, t1: 14.5, status: "pending", crit: true, body: "Main-owned: post-compaction probe cross-checks against meta.json + agents/*.json + transcript.jsonl tail; on mismatch, re-inject must-preserve blocks into next consult. Reads from 4 subsystems + writes to a 5th." },
+      { id: "main.r4", phase: "R4", name: "R4 — ship review", t0: 14.5, t1: 15, status: "pending", crit: true, body: "Final dry run of full 5-min demo. Captions + audio cues (P5), session rotation + reconnect + resume + watchdogs + fan-in (P6), planner chaining + compaction (P7) all wired." },
     ]
   },
   {
-    role: "MAIN", name: "Worker 1", domain: "Electron main process · bridge · tool router · windows · Codex spawner",
+    role: "MAIN", name: "Worker 1", domain: "Electron main process · bridge · tool router · windows · Codex spawner · planner durability",
     tasks: [
-      { id: "p1.a", phase: "P1", name: "Bridge diagnose + fix", t0: 0, t1: 1, status: "done", crit: true, body: "sandbox:false + CSP api.openai.com + transcription model. Commits 052ac4c, 4138d35, c8bc4dd, 4fa1340." },
+      { id: "p1.a", phase: "P1", name: "Bridge diagnose + fix", t0: 0, t1: 1, status: "done", body: "sandbox:false + CSP api.openai.com + transcription model. Commits 052ac4c, 4138d35, c8bc4dd, 4fa1340." },
       { id: "p2.a", phase: "P2", name: "Restore overlay window flags", t0: 2.5, t1: 3, status: "done", body: "Commit 8314a5a — transparent · vibrancy · frame:false · closable:false · type:'panel'" },
-      { id: "p2.b", phase: "P2", name: "Chat-debug 2nd BrowserWindow", t0: 3, t1: 4, status: "done", body: "Commits 83456de (re-anchor) + 55af200 (tray menu chat-debug). Strip on right edge, chat debug via tray." },
+      { id: "p2.b", phase: "P2", name: "Chat-debug 2nd BrowserWindow", t0: 3, t1: 4, status: "done", body: "Commits 83456de (re-anchor) + 55af200 (tray menu chat-debug)." },
       { id: "p3.a", phase: "P3", name: "Planner service (Responses API + gpt-5)", t0: 5, t1: 6.5, status: "done", body: "Commits 0c6a273 + 2bb5d87 + bb65800 + 66ca9cf — gpt-5 planner with streaming reasoning, tool-router wire, dev IPC." },
       { id: "p4.a", phase: "P4", name: "Codex SDK + 4-process pool", t0: 5, t1: 6, status: "done", body: "Commits 93519a1 + 21b8872 + f243a60 + 8d9a461 + 1177b14 — deps, worktree manager, pool with semaphore + JSONL event emission, IPC, registration." },
-      { id: "p4.b", phase: "P4", name: "Worktree + AGENTS.md per agent", t0: 6, t1: 7.5, status: "done", body: "AGENTS.md template + git worktree per Codex spawn, all inside codex-pool.ts. Real SDK shape documented in W1's report (camelCase ThreadOptions, ThreadEvent + ThreadItem unions)." },
+      { id: "p4.b", phase: "P4", name: "Worktree + AGENTS.md per agent", t0: 6, t1: 7.5, status: "done", body: "AGENTS.md template + git worktree per Codex spawn, all inside codex-pool.ts." },
+      { id: "p7.a", phase: "P7", name: "Planner: previous_response_id chaining + orchestrator.jsonl", t0: 9.5, t1: 10.5, status: "pending", body: "Chain consult_director calls via previous_response_id; persist {response_id, at, kind} to orchestrator.jsonl. Per architecture.md §5: store:false stays, we manage the chain." },
+      { id: "p7.b", phase: "P7", name: "Planner: responses.compact at quiescent moments", t0: 10.5, t1: 11.5, status: "pending", body: "Trigger compaction after >50k tokens cumulative tool output, on user idle ≥90s with >80k tokens, and pre-rotation. Append compaction event to orchestrator.jsonl. Cross-cutting probe (P7.3) handed to Main." },
     ]
   },
   {
     role: "VOICE", name: "Worker 2", domain: "Realtime voice · WebRTC client · session · tool delivery · escalation",
     tasks: [
-      { id: "p1.c", phase: "P1", name: "Escalation → Realtime injection", t0: 1, t1: 2, status: "done", crit: true, body: "Prereqs verified. Code from hackathon (commit 98d5169) intact. Awaiting physical smoke at R1." },
-      { id: "p3.b", phase: "P3", name: "consult_director tool + bridge", t0: 5, t1: 6.5, status: "done", body: "Commits b93133f + 4817b0c + 7736c23 — tool added to session.update, persona, narration hook stub." },
-      { id: "p6.a", phase: "P6", name: "55-min session rotation", t0: 8, t1: 9, status: "pending", body: "Mint Session_B · World State Brief inject · swap < 200ms." },
-      { id: "p6.b", phase: "P6", name: "Disconnect / reconnect UX", t0: 9, t1: 9.5, status: "pending", body: "Grey Strip · macOS notif · queue last utterance for replay." },
+      { id: "p1.c", phase: "P1", name: "Escalation → Realtime injection", t0: 1, t1: 2, status: "done", body: "Commit 98d5169 intact, dc.readyState gating added in e3ff649." },
+      { id: "p3.b", phase: "P3", name: "consult_director tool + bridge", t0: 5, t1: 6.5, status: "done", body: "Commits b93133f + 4817b0c + 7736c23 — tool added to session.update, persona, narration hook." },
+      { id: "p6.a", phase: "P6", name: "55-min session rotation + World State Brief", t0: 9.5, t1: 10.5, status: "pending", body: "Mint Session_B via /v1/realtime/client_secrets · build Brief from side store (active harness rules + active agents + current goal + last canvas + last 6 transcript items + elapsed) · swap <audio> srcObject at next 200ms silence window · close Session_A gracefully. Fallback: stay on Session_A until T+59:30 soft warn, T+60 cold rotate." },
+      { id: "p6.b", phase: "P6", name: "Disconnect / reconnect UX", t0: 10.5, t1: 11.5, status: "pending", body: "FSM → degraded on data channel close or iceConnection failure. UI: Strip dims grey + tray red dot. 1s/2s/5s/10s backoff retry. After 30s: macOS notif. Mic muted; queue last utterance for replay on reconnect." },
     ]
   },
   {
     role: "STATE", name: "Worker 3", domain: "State machine · IPC contracts · agent simulator · side store · audio cues",
     tasks: [
-      { id: "p1.b", phase: "P1", name: "Tool routing smoke test", t0: 0.5, t1: 2, status: "done", crit: true, body: "Static-verified end-to-end. Every layer wired correctly. Bug was upstream (sandbox), fixed by W1." },
-      { id: "p3.c", phase: "P3", name: "Side store (harness · decisions · transcript)", t0: 5, t1: 6, status: "done", body: "Commits 48eb11b + 1095db0 — atomic writes, debounced agent snapshots, readWorldState() ready for planner. § 14 contracts doc added (v 2026-05-27.4)." },
-      { id: "p4.c", phase: "P4", name: "Codex events → store actions", t0: 6, t1: 7.5, status: "pending", body: "file_change · turn.completed · error → addAgent/updateAgent/blockAgent/completeAgent." },
-      { id: "p5.b", phase: "P5", name: "Audio cue synthesis", t0: 8, t1: 8.5, status: "pending", body: "Web Audio: confirm · tick · escalation · done · halo. NEW DIR src/renderer/src/audio/*." },
+      { id: "p1.b", phase: "P1", name: "Tool routing smoke test", t0: 0.5, t1: 2, status: "done", body: "Static-verified end-to-end. Bug was upstream (sandbox), fixed by W1." },
+      { id: "p3.c", phase: "P3", name: "Side store (harness · decisions · transcript)", t0: 5, t1: 6, status: "done", body: "Commits 48eb11b + 1095db0 — atomic writes, debounced agent snapshots, readWorldState() ready for planner. flushAgentWrites silent-loss fix in e3ff649." },
+      { id: "p4.c", phase: "P4", name: "Codex events → store actions", t0: 8.5, t1: 9.5, status: "next", crit: true, body: "file_change · turn.completed · error → addAgent/updateAgent/blockAgent/completeAgent. Pool already emits the events (see codex-pool.ts); this lane subscribes via ipcSync and dispatches store actions." },
+      { id: "p6.c", phase: "P6", name: "state.snapshot.json + meta.json writers", t0: 9.5, t1: 10.5, status: "pending", body: "Debounced 1.5s state snapshot (force-flush on quit + rotation + post-orchestrator-response). meta.json with {projectPath, targetAppDir, created, updated, appVersion} atomic-written on goal change. Per architecture.md §3 + §8." },
+      { id: "p6.c2", phase: "P6", name: "Resume on launch (Pick up or start fresh)", t0: 10.5, t1: 11.5, status: "pending", body: "On boot: scan ~/.director/sessions/*, find most recent by meta.updated, <7 days old. Pre-load snapshot. Director speaks 'Pick up Mixtape, or start fresh?' Canvas slides out with 2-option picker. On resume: hydrate harness + transcript tail + current goal into planner's first instructions. Active agents do NOT auto-respawn." },
+      { id: "p5.b", phase: "P5", name: "Audio cue synthesis", t0: 11.5, t1: 12.5, status: "pending", body: "Web Audio: confirm · tick · escalation · done · halo. NEW DIR src/renderer/src/audio/*." },
     ]
   },
   {
     role: "UI", name: "Worker 4", domain: "Strip components · App.tsx render · chat UI · captions · onboarding",
     tasks: [
-      { id: "p2.a2", phase: "P2", name: "App.tsx surface switcher (Strip default, Chat via ?surface=chat)", t0: 2.5, t1: 3.5, status: "next", crit: true, body: "ChatSurface + StripSurface extracted. Conditional render based on query param. In-flight as of W4 dispatch." },
-      { id: "p2.a3", phase: "P2", name: "Auto-resize gated by surface=strip", t0: 3.5, t1: 4, status: "next", body: "strip.resize IPC only called when surface is 'strip'. 12→38→280." },
-      { id: "p2.c", phase: "P2", name: "Visual QA vs Pencil", t0: 4, t1: 4.5, status: "next", body: "Screenshot every state, compare to Pencil frames. Part of W4 task 6." },
-      { id: "p5.a", phase: "P5", name: "Captions component (NEW file)", t0: 8.5, t1: 9.25, status: "pending", body: "components/Captions.tsx — fading subtitle below strip. Avoids App.tsx conflict by being its own component mounted from App.tsx." },
-      { id: "p5.c", phase: "P5", name: "Polish (canvas-handle · hover-peek · onboarding)", t0: 9.25, t1: 10, status: "pending", body: "Strip-as-Canvas-handle · hover-to-peek · 3A-1 minimal-seed welcome." },
+      { id: "p2.a2", phase: "P2", name: "App.tsx surface switcher", t0: 2.5, t1: 3.5, status: "done", body: "ChatSurface + StripSurface extracted. Conditional render based on ?surface query param. Auto-connect + hotkey gated to strip in commit 0f2f3d8." },
+      { id: "p2.a3", phase: "P2", name: "Auto-resize gated by surface=strip", t0: 3.5, t1: 4, status: "done", body: "strip.resize IPC only called when surface is 'strip'." },
+      { id: "p2.c", phase: "P2", name: "Visual QA vs Pencil", t0: 4, t1: 4.5, status: "done", body: "Strip-small width:100% fix in e3ff649. All 6 states render correctly." },
+      { id: "p5.a", phase: "P5", name: "Captions component (NEW file)", t0: 9.5, t1: 10.5, status: "pending", body: "components/Captions.tsx — fading subtitle below strip. Own component to avoid App.tsx merge conflict." },
+      { id: "p5.c", phase: "P5", name: "Polish (canvas-handle · hover-peek · onboarding)", t0: 10.5, t1: 11.5, status: "pending", body: "Strip-as-Canvas-handle · hover-to-peek on dormant · 3A-1 minimal-seed welcome." },
     ]
   },
   {
     role: "CANVAS", name: "Worker 5", domain: "Canvas BrowserWindow · GenUI React components · iframe punchline",
     tasks: [
-      { id: "p2.c2", phase: "P2", name: "Canvas visual QA", t0: 4, t1: 4.5, status: "done", body: "Folded into Main's R2 review (no worker needed — just click Show Moodboard, verify position)." },
-      { id: "p4.d", phase: "P4", name: "Dogfood: real Codex builds Mixtape TODOs", t0: 7, t1: 8, status: "pending", body: "Verify iframe punchline shows live Mixtape with completed flippable card after real Codex run." },
+      { id: "p2.c2", phase: "P2", name: "Canvas visual QA", t0: 4, t1: 4.5, status: "done", body: "Folded into Main's R2 review." },
+      { id: "p4.d", phase: "P4", name: "Dogfood: real Codex builds Mixtape TODOs", t0: 8.5, t1: 9.5, status: "next", crit: true, body: "Flip DIRECTOR_USE_REAL_CODEX, dispatch Jin against examples/mixtape, verify iframe punchline shows the completed flippable card. Needs W3 P4c so Hive reflects file events live." },
+      { id: "p6.f", phase: "P6", name: "Canvas error boundary + degradation cards", t0: 9.5, t1: 11, status: "pending", body: "Moved from W4 → W5 (Canvas-component wheelhouse). React error boundary around CanvasApp + four NEW Canvas components: MicDenied (with macOS Settings deeplink), ApiKeyMissing (text input + save), RotationFailed (soft notice), CanvasError (retry button). Per architecture.md §9." },
     ]
   },
 ];
@@ -317,54 +348,75 @@ const phases = [
   { id: "P2", title: "Restore the Strip", meta: "2.5–4.5h · 3 lanes", body: "Revert chat-pivot. Strip is the product. Chat stays as tray-menu debug surface. Visual QA against Pencil before R2.", lanes: [{ role: "MAIN", name: "window + chat-debug" }, { role: "UI", name: "App.tsx revert + resize" }, { role: "CANVAS", name: "visual QA" }, { role: "UI", name: "visual QA" }] },
   { id: "P3", title: "gpt-5.5 planner tier", meta: "4.5–7h · parallels P4", body: "Add the deep reasoning hop. consult_director tool, Responses API client, reasoning summary → audio narration, side store.", lanes: [{ role: "MAIN", name: "planner service" }, { role: "VOICE", name: "tool bridge" }, { role: "STATE", name: "side store" }] },
   { id: "P4", title: "Real Codex sub-agents", meta: "4.5–7.5h · parallels P3", body: "Replace simulator with @openai/codex-sdk. Spawn pool, AGENTS.md per worktree, JSONL events drive Hive.", lanes: [{ role: "MAIN", name: "SDK + spawn pool" }, { role: "MAIN", name: "worktree + identity" }, { role: "STATE", name: "events → store" }, { role: "CANVAS", name: "dogfood Mixtape" }] },
-  { id: "P5", title: "Polish", meta: "8–10h · 3 lanes", body: "Captions, audio cues, onboarding seed, Canvas-handle, hover-peek.", lanes: [{ role: "UI", name: "captions" }, { role: "STATE", name: "audio cues" }, { role: "UI", name: "polish" }] },
-  { id: "P6", title: "Resilience", meta: "8–9.5h · runs alongside P5", body: "Session rotation, reconnect UX, resume on launch.", lanes: [{ role: "VOICE", name: "rotation" }, { role: "VOICE", name: "reconnect" }] },
+  { id: "P5", title: "Polish", meta: "9.5–12.5h · UI + audio lanes", body: "Captions component, audio cue synthesis, hover-peek on dormant, strip-as-Canvas-handle, minimal-seed onboarding (3A-1).", lanes: [{ role: "UI", name: "captions" }, { role: "STATE", name: "audio cues" }, { role: "UI", name: "polish + onboarding" }] },
+  { id: "P6", title: "Continuity & resilience (expanded)", meta: "9.5–13.5h · all-lanes (Main owns cross-process items)", body: "Session rotation @ T+55 with World State Brief (W2) · disconnect→queued utterance→reconnect (W2) · state.snapshot+meta writers (W3) · resume on launch (W3) · Codex hang watchdog (Main — cross-process: pool↔planner↔realtime) · worktree merge fan-in (Main — cross-cutting policy call) · Canvas error boundary + degradation cards (W5 — Canvas wheelhouse). Per architecture.md §3, §4, §8, §9.", lanes: [{ role: "VOICE", name: "rotation" }, { role: "VOICE", name: "reconnect" }, { role: "STATE", name: "snapshot+resume" }, { role: "ORCH", name: "watchdog" }, { role: "ORCH", name: "fan-in" }, { role: "CANVAS", name: "error cards" }] },
+  { id: "P7", title: "Planner durability (NEW)", meta: "9.5–14.5h · W1 + Main split", body: "previous_response_id chaining + orchestrator.jsonl persistence (W1) · responses.compact at quiescent moments (W1) · post-compaction health-check probe with must-preserve re-injection (Main — cross-cutting reads across meta + agents + transcript + planner). Closes the compaction-finding gap from architecture.md §5 — currently planner is single-shot, sessions >5min hit context limits silently.", lanes: [{ role: "MAIN", name: "chaining" }, { role: "MAIN", name: "compaction" }, { role: "ORCH", name: "probe" }] },
+];
+
+// Known scope cuts vs vision.md / architecture.md (intentionally NOT in P5/P6/P7)
+const knownCuts = [
+  { title: "3-tier collapsed to 2-tier", detail: "Original vision: Realtime → consult_director → planner-with-tools (dispatch_agent · update_harness · render_canvas · record_decision · list_active_jobs · read_decisions · set_current_goal · force_compaction · consult_realtime). Current: Realtime holds the action tools directly; planner only narrates. Planner can't autonomously dispatch or paint Canvas mid-reasoning. Reversing would unlock 'deep director acts' but doubles tool surface count.", impact: "Semantic loss — 'deep director' became 'deep narrator'." },
+  { title: "No XState lifecycle FSM", detail: "Architecture.md §2 wanted Zustand + XState. We shipped Zustand-only. Illegal lifecycle transitions (e.g. live→boot) are silently possible. No 250ms CRC heartbeat between renderer + main mirrors.", impact: "Demo-tolerable. Long-running production would catch real bugs." },
+  { title: "No keychain", detail: "API key in .env. Architecture.md §11 called for macOS Keychain via keytar. Hackathon-acceptable; not ship-acceptable.", impact: "Acceptable for demo + dev. Ship blocker for distribution." },
+  { title: "MCP servers on Realtime", detail: "Architecture.md §11 open Q. All heavy tools stayed behind planner. Direct MCP on Realtime would let trivial reads (file open, git status) skip the planner round-trip.", impact: "v2 demo feature; not v1." },
+  { title: "Worktree base-branch pre-flight + diff approval", detail: "Architecture.md §11 open Q #11, #12. Currently worktree is added off current HEAD with no check for uncommitted changes; no Canvas diff-approval UI before merge.", impact: "Auto-merge in P6 fan-in is the riskiest item — needs human approval UX." },
 ];
 
 // Checkpoint gates (vertical columns between batches)
 const checkpoints = [
-  { id: "R1", at: 2, gates: "P1 → P2",
-    title: "Integration sound?",
-    sub: "Verify bridge, tool routing, and escalation work together — all 3 P1 lanes' commits cross-tested before P2 fires.",
+  { id: "R1", at: 2, gates: "P1 → P2", status: "passed",
+    title: "Integration sound? (passed)",
+    sub: "Bridge + tool routing + escalation cross-tested before P2 fired.",
     criteria: [
-      "window.director exists in devtools after launch",
-      "Mic permission + voice round-trip (say hello → AI replies with audio)",
-      "Show Moodboard button opens Canvas — tool routing fires through IPC",
-      "Sim escalation triggers Director's unprompted speech via Realtime injection",
-      "No regressions in dormant Strip render",
+      "window.director exists in devtools after launch — ✓",
+      "Mic + voice round-trip working — ✓",
+      "Show Moodboard opens Canvas via tool routing — ✓",
+      "Sim escalation injects Director speech — ✓",
+      "Dormant Strip renders without regression — ✓",
     ]
   },
-  { id: "R2", at: 4.5, gates: "P2 → P3 + P4",
-    title: "Strip back? Chat debug working?",
-    sub: "Verify strip is restored, all states render correctly against Pencil, chat is in tray as a debug surface only. Screenshot diff each state.",
+  { id: "R2", at: 4.5, gates: "P2 → P3+P4", status: "passed",
+    title: "Strip back? Chat debug working? (passed)",
+    sub: "Strip restored, all 6 states render against Pencil, chat lives as tray-menu debug surface only.",
     criteria: [
-      "All 6 strip states animate correctly (dormant/listening/speaking/thinking/hive/escalating)",
-      "Auto-resize per state works (12→38→280)",
-      "Tray menu opens chat as secondary window",
-      "Visual parity with Pencil mockups (EodJh/WTc1y/TiVyu/v2ONzK/yl2Zx/BzAdB)",
-      "Canvas opens against the strip in correct position",
+      "All 6 strip states animate correctly — ✓",
+      "Auto-resize per state works (12→38→280) — ✓",
+      "Tray menu opens chat as secondary window — ✓",
+      "Visual parity with Pencil mockups — ✓",
+      "Canvas opens against the strip in correct position — ✓",
     ]
   },
-  { id: "R3", at: 7.5, gates: "P3 + P4 → P5",
-    title: "3-tier alive? Real Codex working?",
-    sub: "Verify consult_director hits gpt-5.5 and narrates reasoning. Real Codex subprocesses populate Hive with actual file events. Side store on disk.",
+  { id: "R2.5", at: 7.5, gates: "review batch → fixes", status: "passed",
+    title: "Sonnet code-review spot-check (passed)",
+    sub: "4 parallel sonnet reviewers (A voice-bridge · B ui-strip · C state-persistence · D planner-codex) audited the merged P1+P2+P3+P4 surface. Main fixed all surfaced issues inline rather than re-dispatching workers.",
     criteria: [
-      "consult_director tool call → audio narration of planner reasoning",
-      "4 real Codex subprocesses spawn with AGENTS.md identities",
-      "Codex file_change/turn.completed events update Hive in real time",
-      "harness.json + decisions.jsonl + agents/<id>.json exist after a session",
-      "Director actually completes a Mixtape TODO (e.g., the share page)",
+      "4 blockers fixed: dispatch_agent_mock schema/handler drift · update_harness missing why · tool-router → side-store wiring · planner SSE parser fragility",
+      "3 majors fixed: flushAgentWrites silent loss · strip-small hardcoded 12px · escalation injection missing dc.readyState",
+      "5 minors fixed: contracts § 2 drift · Mixtape Next 15 params · canvas preload removeListener scope · codex-pool semaphore race · tool-result inject drop diagnostic",
+      "Workspace typecheck passes for Director + Mixtape",
+      "Reviews preserved in docs/reviews/A,B,C,D.md",
     ]
   },
-  { id: "R4", at: 10, gates: "P5 + P6 → ship",
-    title: "Polished + resilient?",
-    sub: "Final integration. Captions + audio cues + session rotation + reconnect UX all working. Full demo dry-run.",
+  { id: "R3", at: 9.5, gates: "P4 finish → P5+P6+P7",
+    title: "3-tier alive + Mixtape dogfood?",
+    sub: "Verify W3 P4c (Codex events → Hive store) and W5 P4d (DIRECTOR_USE_REAL_CODEX dogfood against examples/mixtape) before the P5+P6+P7 parallel batch fires.",
     criteria: [
-      "55-min rotation handled invisibly (mint Session_B, swap < 200ms)",
-      "Audio cues fire on every state transition (confirm/tick/escalation/done/halo)",
-      "Captions track Realtime narration as fading text",
-      "Disconnect handled gracefully (grey Strip + queued utterance)",
-      "Full 5-min Mixtape demo runs end-to-end without intervention",
+      "consult_director call → audio narration of planner reasoning",
+      "Real Codex subprocesses spawn with AGENTS.md identities (DIRECTOR_USE_REAL_CODEX=1)",
+      "file_change / turn.completed events update Hive in real time",
+      "harness.json + decisions.jsonl + agents/<id>.json on disk after a session",
+      "Mixtape iframe punchline shows a completed flippable card after a real Codex run",
+    ]
+  },
+  { id: "R4", at: 14.5, gates: "P5+P6+P7 → ship",
+    title: "Polished + resilient + durable?",
+    sub: "Final integration. Captions + audio cues + session rotation + reconnect + resume + planner chaining + compaction + watchdogs + error degradation all working. Full 5-min demo dry-run from cold start.",
+    criteria: [
+      "P5: Captions track narration · audio cues on every state transition · hover-peek + strip-as-handle + onboarding seed",
+      "P6: 55-min rotation invisible · disconnect→queued utterance→reconnect path · resume-on-launch picker · state.snapshot+meta+orchestrator.jsonl on disk · Codex hang watchdog fires · worktree merge fan-in works · Canvas error boundary + mic/api-key cards",
+      "P7: previous_response_id chaining persists across consults · responses.compact fires at quiescent moments · health-check probe runs post-compaction and re-injects on mismatch",
+      "Full 5-min Mixtape demo runs end-to-end from cold start (no manual setup) without intervention",
+      "Kill the process mid-session → relaunch → 'Pick up Mixtape?' → state restored",
     ]
   },
 ];
@@ -405,14 +457,15 @@ for (const w of workers) {
 const overlay = document.getElementById("overlay");
 for (const cp of checkpoints) {
   const left = (cp.at / UNITS) * 100;
+  const passed = cp.status === "passed";
   const line = document.createElement("div");
-  line.className = "cp-line";
+  line.className = "cp-line" + (passed ? " passed" : "");
   line.style.left = left + "%";
   overlay.appendChild(line);
   const flag = document.createElement("div");
-  flag.className = "cp-flag";
+  flag.className = "cp-flag" + (passed ? " passed" : "");
   flag.style.left = left + "%";
-  flag.textContent = `${cp.id} · ${cp.gates}`;
+  flag.textContent = `${cp.id} · ${cp.gates}` + (passed ? " ✓" : "");
   flag.title = cp.title + " — " + cp.sub;
   overlay.appendChild(flag);
 }
@@ -420,8 +473,9 @@ for (const cp of checkpoints) {
 // ── Checkpoint detail cards ───────────────────────────────────────────────
 const cpEl = document.getElementById("checkpointsDetail");
 for (const cp of checkpoints) {
+  const passed = cp.status === "passed";
   const card = document.createElement("div");
-  card.className = "cp-card";
+  card.className = "cp-card" + (passed ? " passed" : "");
   card.innerHTML = `
     <div class="head">
       <span class="id">${cp.id}</span>
@@ -449,6 +503,22 @@ for (const p of phases) {
     <div class="lanes">${p.lanes.map(l => `<span class="lane-chip"><span class="role-${l.role}">${l.role}</span> ${l.name}</span>`).join("")}</div>
   `;
   phaseEl.appendChild(card);
+}
+
+// ── Known cuts cards ──────────────────────────────────────────────────────
+const cutsEl = document.getElementById("knownCuts");
+for (const c of knownCuts) {
+  const card = document.createElement("div");
+  card.className = "phase-card";
+  card.innerHTML = `
+    <div class="head">
+      <span class="id" style="background:rgba(232,169,92,0.18);color:var(--amber);">CUT</span>
+      <span class="title">${c.title}</span>
+      <span class="meta">${c.impact}</span>
+    </div>
+    <div class="body">${c.detail}</div>
+  `;
+  cutsEl.appendChild(card);
 }
 </script>
 </body>
