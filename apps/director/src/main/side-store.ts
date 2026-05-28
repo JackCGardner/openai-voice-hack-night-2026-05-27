@@ -424,3 +424,124 @@ export async function registerSideStoreIpc(): Promise<void> {
 export type SidestoreSnapshotResponse =
   | { ok: true; world: WorldState }
   | { ok: false; error: string };
+
+// ─── § orchestrator-log (W1 — P7.1 + P7.2) ──────────────────────────────
+// Append-only marker per docs/contracts.md § 13.1. This block adds the
+// orchestrator.jsonl writer + tail reader the planner uses for
+// `previous_response_id` chaining and compaction event logging. Do NOT
+// modify the helpers above; extend below the marker only.
+
+/**
+ * Kind of orchestrator-log entry. `response` is appended after every
+ * successful `responses.create`; `compaction` after every successful
+ * manual `responses.compact` (or fallback); `health-check-mismatch` is
+ * reserved for Main's P7.3 health-check probe.
+ */
+export type OrchestratorEntryKind =
+  | 'response'
+  | 'compaction'
+  | 'health-check-mismatch';
+
+export interface OrchestratorUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  reasoning_tokens?: number;
+  /** Future-proof — preserve any extra fields the API ships. */
+  [key: string]: unknown;
+}
+
+export interface OrchestratorEntry {
+  /** ms epoch. */
+  at: number;
+  kind: OrchestratorEntryKind;
+  /** The new response id this turn produced. May be null on noop fallback. */
+  responseId: string | null;
+  /** The chain predecessor — i.e. the prior `lastResponseId`. */
+  previousResponseId: string | null;
+  /** Planner / compaction model id, for forensic trail across model bumps. */
+  model: string;
+  /** Whatever the API returned. Schema-loose so we can grow without a bump. */
+  usage?: OrchestratorUsage | null;
+  /** Optional one-line summary (e.g. compaction fallback reason). */
+  summary?: string;
+}
+
+/**
+ * Atomic append of a single orchestrator-log entry. Mirrors the
+ * `appendDecision` helper — same atomic `fs.open('a')` + `fsync` pattern.
+ * Defensive: out-of-band entries are coerced to safe defaults rather
+ * than dropped.
+ */
+export async function appendOrchestratorEntry(
+  entry: OrchestratorEntry,
+): Promise<void> {
+  // Defensive coercion — never throw on a malformed input.
+  const safe: OrchestratorEntry = {
+    at: typeof entry?.at === 'number' && Number.isFinite(entry.at)
+      ? entry.at
+      : Date.now(),
+    kind:
+      entry?.kind === 'response' ||
+      entry?.kind === 'compaction' ||
+      entry?.kind === 'health-check-mismatch'
+        ? entry.kind
+        : 'response',
+    responseId:
+      typeof entry?.responseId === 'string' && entry.responseId.length > 0
+        ? entry.responseId
+        : null,
+    previousResponseId:
+      typeof entry?.previousResponseId === 'string' &&
+      entry.previousResponseId.length > 0
+        ? entry.previousResponseId
+        : null,
+    model:
+      typeof entry?.model === 'string' && entry.model.length > 0
+        ? entry.model
+        : 'unknown',
+    usage: entry?.usage ?? null,
+    summary:
+      typeof entry?.summary === 'string' ? entry.summary : undefined,
+  };
+  await atomicAppendLine(
+    join(requireDir(), 'orchestrator.jsonl'),
+    JSON.stringify(safe),
+  );
+}
+
+/**
+ * Read the orchestrator log; latest entries last (file order). Used by
+ * the planner on boot to recover `lastResponseId` and by the P7.3 health
+ * probe to diff intent vs reality.
+ *
+ * `limit > 0` slices to the last N entries (cheap for hot paths); pass
+ * `limit = 0` to read the entire log.
+ */
+export async function readOrchestratorLog(
+  limit = 50,
+): Promise<OrchestratorEntry[]> {
+  const all = await readJsonlSafely<OrchestratorEntry>(
+    join(requireDir(), 'orchestrator.jsonl'),
+  );
+  return limit > 0 ? all.slice(-limit) : all;
+}
+
+/**
+ * Convenience: walk the orchestrator log tail to recover the most recent
+ * `responseId`. Returns null on empty / never-run. The planner calls this
+ * on boot so a restart picks up the chain instead of starting fresh.
+ *
+ * We accept ANY entry kind (response | compaction) because compaction
+ * also mints a new response id that the next turn should chain from.
+ */
+export async function readLastOrchestratorResponseId(): Promise<string | null> {
+  const tail = await readOrchestratorLog(50);
+  for (let i = tail.length - 1; i >= 0; i--) {
+    const e = tail[i];
+    if (e && typeof e.responseId === 'string' && e.responseId.length > 0) {
+      return e.responseId;
+    }
+  }
+  return null;
+}
