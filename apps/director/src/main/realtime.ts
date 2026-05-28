@@ -40,7 +40,9 @@ function sessionConfig(req: RealtimeSessionRequest, model: string, voice: string
         },
       },
       output: {
-        format: { type: 'audio/pcm' },
+        // rate is REQUIRED at mint time; omission returns HTTP 400
+        // ("Missing required parameter: session.audio.output.format.rate").
+        format: { type: 'audio/pcm', rate: 24000 },
         voice: overrideVoice,
         speed: 1.0,
       },
@@ -48,7 +50,9 @@ function sessionConfig(req: RealtimeSessionRequest, model: string, voice: string
     tools: realtimeToolDefs(),
     tool_choice: 'auto',
     reasoning: { effort: 'low' as const },
-    max_response_output_tokens: 4096,
+    // Note: max_response_output_tokens is REJECTED by the GA mint endpoint
+    // (HTTP 400 "Unknown parameter"). The server's own response uses
+    // `max_output_tokens` (defaulting to "inf"); leaving it unset is fine.
     include: ['item.input_audio_transcription.logprobs'],
   };
 }
