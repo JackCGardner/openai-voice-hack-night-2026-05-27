@@ -1,24 +1,284 @@
 /**
- * IPC channel names and payload types shared between main and renderer.
+ * IPC channel surface between Electron main, preload, and renderer.
  *
- * Keep this surface minimal — the architecture agent will design the full
- * state-machine / IPC pattern. For boilerplate we only need:
- *   - hotkey notification (main → renderer)
- *   - dormant state query (renderer → main)
- *   - summon request (renderer → main)
- *   - realtime ephemeral token mint (renderer → main → OpenAI)
+ * Spec: docs/ipc-contracts.md (authoritative). This file is the single
+ * source of truth for channel names and payload shapes — main + preload
+ * import from here, the renderer imports through the preload's
+ * `window.director` bridge.
+ *
+ * Conventions:
+ *   - Channel keys are `<domain>.<action>`. Wire strings are stable —
+ *     never rename without bumping `app.ready.protocolVersion`. The four
+ *     legacy `director:*` channels predate the convention and keep their
+ *     original wire strings so the W1 scaffolding (main/index.ts, preload)
+ *     keeps working unchanged.
+ *   - `invoke` responses always shape `{ ok: true; ... } | { ok: false; error }`.
+ *   - Fire-and-forget events use `send` / `on` — no return type.
+ *   - All payloads are structured-clone-safe: plain objects, no functions,
+ *     no class instances.
  */
 
 import type { RealtimeEphemeralToken, RealtimeSessionRequest } from './realtime.js';
+import type {
+  Agent,
+  AgentId,
+  HarnessRule,
+  RealtimeToolDefinition,
+  SerializableStore,
+  TranscriptItem,
+  WorldStateBrief,
+} from './state.js';
+
+// ─── Channel enum ────────────────────────────────────────────────────────
 
 export const IpcChannel = {
+  // ─── Legacy boilerplate (W1 scaffolding) ──────────────────────────────
   HotkeyPressed: 'director:hotkey-pressed',
   GetDormantState: 'director:get-dormant-state',
   RequestSummon: 'director:request-summon',
   RealtimeMintToken: 'director:realtime-mint-token',
+
+  // ─── realtime.* ───────────────────────────────────────────────────────
+  RealtimeSessionUpdate: 'realtime.sessionUpdate',
+  RealtimeRotationReady: 'realtime.rotationReady',
+  RealtimeDisconnect: 'realtime.disconnect',
+
+  // ─── tool.* ───────────────────────────────────────────────────────────
+  ToolCall: 'tool.call',
+  ToolResult: 'tool.result',
+  ToolProactiveAnnounce: 'tool.proactiveAnnounce',
+
+  // ─── state.* ──────────────────────────────────────────────────────────
+  StatePatch: 'state.patch',
+  StateHydrate: 'state.hydrate',
+  StateSnapshotRequest: 'state.snapshotRequest',
+  StateSync: 'state.sync',
+
+  // ─── hotkey.* (modern) ────────────────────────────────────────────────
+  HotkeyRegisterFailed: 'hotkey.registerFailed',
+
+  // ─── mic.* ────────────────────────────────────────────────────────────
+  MicToggle: 'mic.toggle',
+  MicStatus: 'mic.status',
+  MicPermissionDenied: 'mic.permissionDenied',
+
+  // ─── audio.* ──────────────────────────────────────────────────────────
+  AudioCue: 'audio.cue',
+
+  // ─── app.* ────────────────────────────────────────────────────────────
+  AppQuit: 'app.quit',
+  AppReady: 'app.ready',
+  AppError: 'app.error',
 } as const;
 
 export type IpcChannel = (typeof IpcChannel)[keyof typeof IpcChannel];
+
+// ─── Common envelopes ────────────────────────────────────────────────────
+
+export type IpcAck<T = void> =
+  | (T extends void ? { ok: true } : { ok: true } & T)
+  | { ok: false; error: string };
+
+// ─── realtime.* payloads ─────────────────────────────────────────────────
+
+export interface RealtimeMintTokenRequest {
+  voice: 'marin' | 'cedar';
+  reasoningEffort: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  tools: RealtimeToolDefinition[];
+  instructions: string;
+}
+
+export type RealtimeMintTokenResponse =
+  | { ok: true; token: string; expiresAt: number; sessionId: string }
+  | { ok: false; error: string };
+
+export interface RealtimeSessionUpdatePayload {
+  patch: Partial<{
+    voice: 'marin' | 'cedar';
+    instructions: string;
+    tools: RealtimeToolDefinition[];
+  }>;
+}
+
+export interface RotationReadyPayload {
+  newToken: string;
+  newSessionId: string;
+  expiresAt: number;
+  brief: WorldStateBrief;
+}
+
+export interface RealtimeDisconnectPayload {
+  reason: 'user-quit' | 'rotation-complete' | 'auth-failed' | 'network';
+  sessionId: string;
+}
+
+// ─── tool.* payloads ─────────────────────────────────────────────────────
+
+export type ToolName =
+  | 'consult_director'
+  | 'dispatch_agent'
+  | 'update_harness'
+  | 'render_canvas'
+  | 'dismiss_canvas'
+  | 'record_decision'
+  | 'ask_user'
+  | 'read_world_state'
+  | 'canvas_response'
+  | 'dispatch_agent_mock';
+
+export interface ToolCallRequest {
+  callId: string;
+  name: ToolName;
+  args: unknown;
+  realtimeItemId: string;
+}
+
+export type ToolCallResponse =
+  | { ok: true; callId: string; output: unknown; latencyMs: number }
+  | { ok: false; callId: string; error: string; latencyMs: number };
+
+export interface ToolResultPayload {
+  callId: string;
+  output: unknown;
+  /**
+   * If true, renderer should inject the result as a synthetic
+   * `conversation.item.create` (`function_call_output`) + `response.create`.
+   * If false, the result is informational only (orchestrator side-effect).
+   */
+  asSyntheticItem: boolean;
+}
+
+export interface ProactiveAnnouncePayload {
+  text: string;
+  reason: 'agent_blocked' | 'agent_done' | 'rotation_warning' | 'rate_limit';
+  metadata?: Record<string, unknown>;
+}
+
+// ─── state.* payloads ────────────────────────────────────────────────────
+
+export type StatePatchDomain =
+  | 'agents'
+  | 'harness'
+  | 'canvas'
+  | 'transcript'
+  | 'goal'
+  | 'realtime'
+  | 'strip';
+
+export type StatePatchSource = 'main' | 'codex' | 'orchestrator' | 'side-store';
+
+export interface StatePatchPayload {
+  domain: StatePatchDomain;
+  patch: unknown;
+  source: StatePatchSource;
+  at: number;
+}
+
+export interface StateHydratePayload {
+  harness: HarnessRule[];
+  agents: Record<AgentId, Agent>;
+  goal: string | null;
+  recentTranscript: TranscriptItem[];
+  resumedFrom: { sessionId: string; at: number } | null;
+}
+
+export type StateSnapshotResponse =
+  | { ok: true; snapshot: SerializableStore }
+  | { ok: false; error: string };
+
+export interface StateSyncPayload {
+  full: SerializableStore;
+  reason: 'crc-mismatch' | 'forced-resync';
+}
+
+// ─── hotkey.* payloads ───────────────────────────────────────────────────
+
+export type HotkeyChord =
+  | 'cmd+shift+space'
+  | 'cmd+shift+m'
+  | 'cmd+period'
+  | 'esc';
+
+/**
+ * Payload for the canonical `hotkey.pressed` event. The legacy
+ * `director:hotkey-pressed` channel carries no payload (W1 scaffolding) —
+ * once main is upgraded, switch to this payload + the new channel name.
+ */
+export interface HotkeyPressedPayload {
+  chord: HotkeyChord;
+  phase: 'down' | 'up';
+  durationMs?: number;
+  timestamp: number;
+}
+
+export interface HotkeyRegisterFailedPayload {
+  chord: string;
+  reason: string;
+  alternatives: string[];
+}
+
+// ─── mic.* payloads ──────────────────────────────────────────────────────
+
+export interface MicToggleRequest {
+  muted: boolean;
+}
+
+export type MicToggleResponse =
+  | { ok: true; muted: boolean }
+  | { ok: false; error: string };
+
+export interface MicStatusPayload {
+  state: 'muted' | 'tap-open' | 'hold-open';
+  inputLevel: number;
+}
+
+export interface MicPermissionDeniedPayload {
+  systemSettingsDeeplink: string;
+}
+
+// ─── audio.* payloads ────────────────────────────────────────────────────
+
+export type AudioCueName =
+  | 'confirm'
+  | 'tick'
+  | 'escalation'
+  | 'done'
+  | 'recognized';
+
+export interface AudioCuePayload {
+  cue: AudioCueName;
+  gain?: number;
+}
+
+// ─── app.* payloads ──────────────────────────────────────────────────────
+
+export type AppQuitResponse = { ok: true } | { ok: false; error: string };
+
+export interface AppReadyPayload {
+  version: string;
+  protocolVersion: number;
+  platform: 'darwin';
+  sessionDirectory: string;
+  hasResumeAvailable: boolean;
+}
+
+export type AppErrorKind =
+  | 'realtime'
+  | 'orchestrator'
+  | 'codex'
+  | 'disk'
+  | 'auth'
+  | 'hotkey';
+
+export interface AppErrorPayload {
+  id: string;
+  kind: AppErrorKind;
+  message: string;
+  severity: 'info' | 'warn' | 'error';
+  recoverable: boolean;
+}
+
+// ─── Legacy boilerplate types (W1 scaffolding) ───────────────────────────
 
 export interface DormantState {
   dormant: boolean;
@@ -27,12 +287,18 @@ export interface DormantState {
 export type HotkeyListener = () => void;
 
 /**
- * Shape exposed on `window.director` via contextBridge.
+ * Shape exposed on `window.director` via contextBridge. The minimal surface
+ * used by the dormant-strip scaffolding. Will grow as each domain
+ * (mic, tool, state) lights up.
  */
 export interface DirectorBridge {
+  /** Subscribe to hotkey events from main. Returns an unsubscribe fn. */
   onHotkey: (cb: HotkeyListener) => () => void;
+  /** Request main to attempt a "summon" (programmatic open). */
   requestSummon: () => Promise<void>;
+  /** One-shot read of main's dormant-state estimate. */
   getDormantState: () => Promise<DormantState>;
+  /** Realtime ephemeral-token broker (W1). */
   realtime: {
     mintToken: (req?: RealtimeSessionRequest) => Promise<RealtimeEphemeralToken>;
   };
@@ -43,3 +309,67 @@ declare global {
     director: DirectorBridge;
   }
 }
+
+// ─── Channel → payload map (for typed dispatch helpers) ──────────────────
+
+/** Send-style channels (no ack). */
+export interface IpcSendMap {
+  [IpcChannel.HotkeyPressed]: void;
+  [IpcChannel.RealtimeSessionUpdate]: RealtimeSessionUpdatePayload;
+  [IpcChannel.RealtimeRotationReady]: RotationReadyPayload;
+  [IpcChannel.RealtimeDisconnect]: RealtimeDisconnectPayload;
+  [IpcChannel.ToolResult]: ToolResultPayload;
+  [IpcChannel.ToolProactiveAnnounce]: ProactiveAnnouncePayload;
+  [IpcChannel.StatePatch]: StatePatchPayload;
+  [IpcChannel.StateHydrate]: StateHydratePayload;
+  [IpcChannel.StateSync]: StateSyncPayload;
+  [IpcChannel.HotkeyRegisterFailed]: HotkeyRegisterFailedPayload;
+  [IpcChannel.MicStatus]: MicStatusPayload;
+  [IpcChannel.MicPermissionDenied]: MicPermissionDeniedPayload;
+  [IpcChannel.AudioCue]: AudioCuePayload;
+  [IpcChannel.AppReady]: AppReadyPayload;
+  [IpcChannel.AppError]: AppErrorPayload;
+}
+
+/** Invoke-style channels (request → ack). */
+export interface IpcInvokeMap {
+  [IpcChannel.GetDormantState]: { request: void; response: DormantState };
+  [IpcChannel.RequestSummon]: { request: void; response: void };
+  [IpcChannel.RealtimeMintToken]: {
+    request: RealtimeSessionRequest | undefined;
+    response: RealtimeEphemeralToken;
+  };
+  [IpcChannel.ToolCall]: {
+    request: ToolCallRequest;
+    response: ToolCallResponse;
+  };
+  [IpcChannel.StateSnapshotRequest]: {
+    request: void;
+    response: StateSnapshotResponse;
+  };
+  [IpcChannel.MicToggle]: {
+    request: MicToggleRequest;
+    response: MicToggleResponse;
+  };
+  [IpcChannel.AppQuit]: { request: void; response: AppQuitResponse };
+}
+
+// ─── Re-export state types so callers only need this import ──────────────
+
+export type {
+  Agent,
+  AgentId,
+  AgentRole,
+  AgentStatus,
+  CanvasComponentName,
+  CanvasComponentProps,
+  CanvasState,
+  HarnessRule,
+  RealtimeStatus,
+  RealtimeToolDefinition,
+  SerializableStore,
+  StripState,
+  StripStateKind,
+  TranscriptItem,
+  WorldStateBrief,
+} from './state.js';
