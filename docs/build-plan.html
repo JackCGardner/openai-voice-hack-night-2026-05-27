@@ -215,9 +215,9 @@ footer { margin-top: 32px; text-align: center; color: var(--text-3); font-size: 
 </header>
 
 <div class="banner">
-  <span class="pill">NOW · ~8.5h / 16h</span>
+  <span class="pill">NOW · ~9.5h / 16h · R3 PASSED</span>
   <div class="text">
-    <strong>P0–P4 base shipped, reviewed, and inline-fixed.</strong> 4 parallel sonnet reviewers (A/B/C/D) spot-checked the merged surface; 4 blockers + 3 majors + 5 minors surfaced and Main-fixed inline across 7 commits. Plan re-cut against <code>docs/vision.md</code> + <code>docs/architecture.md</code>: <strong>P6 expanded</strong> (added snapshot/meta writers, resume on launch, Codex hang watchdog, worktree merge fan-in, Canvas error boundary + degradation cards) and <strong>P7 added</strong> (planner durability — <code>previous_response_id</code> chaining, <code>responses.compact</code>, health-check probe, orchestrator.jsonl). Budget bumped 12h → 16h. Detail in <code>docs/remaining-phases.md</code>. Known cuts (3-tier→2-tier, no XState, no keychain) called out below.
+    <strong>P0–P4 all done, all 3 review gates (R1/R2/R2.5/R3) cleared.</strong> W3 P4c shipped (codex.event → store, vitest 8/8); W5 P4d headless dogfood proven (Cleo + Jin parallel, cherry-pick merge, mixtape typecheck + build + 3 curl assertions all green). Plus 4 parallel sonnet reviewers (A/B/C/D) and Main inline-fixes across 7 commits earlier. <strong>P5+P6+P7 parallel batch ready to fire</strong> — Main critical path: P6.4 watchdog → P6.5 fan-in → P7.3 probe; W1 P7.1+P7.2; W2 P6.1+P6.2; W3 P6.3+P6.3b+P5.2; W4 P5.1+P5.3; W5 P6.6. Detail in <code>docs/remaining-phases.md</code>. Known cuts (3-tier→2-tier, no XState, no keychain) below.
   </div>
 </div>
 
@@ -281,7 +281,7 @@ const workers = [
       { id: "main.p3-cc", phase: "P3", name: "Cross-cutting wiring (tool-router → side-store)", t0: 5.5, t1: 6.5, status: "done", body: "Commit a8e19ea — appendHarnessRule + appendDecision + queueAgentWrite + setLastCanvas wired through the tool-router so every Realtime tool persists." },
       { id: "main.rs", phase: "R2.5", name: "Sonnet review batch (A · B · C · D)", t0: 6.5, t1: 7.5, status: "done", body: "4 parallel sonnet reviewers spot-checked the merged P1+P2+P3+P4 surface. 4 blockers + 3 majors + 5 minors surfaced. Reviews in docs/reviews/." },
       { id: "main.fix", phase: "fix", name: "Inline fixes (7 commits)", t0: 7.5, t1: 8.5, status: "done", crit: true, body: "Main fixed all surfaced issues inline rather than re-dispatching workers. Commits 8abba41 (schemas) · a8e19ea (tool-router → side-store) · 9a5d77e (planner SSE) · e3ff649 (flush + dc.readyState + strip width) · 0e1b09b (contracts sync) · 08ec9ca (Mixtape Next 15). Workspace typecheck passes." },
-      { id: "main.r3", phase: "R3", name: "R3 — verify 3-tier alive + dogfood", t0: 9.5, t1: 10, status: "next", crit: true, body: "Verify consult_director narrates planner reasoning. Real Codex pops in Hive after W3 P4c lands. End-to-end Mixtape build via real agents after W5 P4d lands." },
+      { id: "main.r3", phase: "R3", name: "R3 — 3-tier alive + dogfood verified", t0: 9.5, t1: 10, status: "done", body: "Passed. Cleo + Jin dispatched in parallel via headless dogfood (commits 9b26af5, 74a9e8e, 31f6c33). All 3 curl assertions green on ephemeral port. Maya scaffold stub fix (afc5acf) unblocked the post-merge build. P5+P6+P7 batch cleared to fire." },
       { id: "main.p6d", phase: "P6", name: "Codex hang watchdog (cross-process)", t0: 10, t1: 11.5, status: "pending", crit: true, body: "Main-owned: stopwatch in codex-pool · proactive injection into planner · narration script to realtime. Three subsystems — needs full integration context. >60s no output → 'Maya seems stuck — kill or extend?' voice path." },
       { id: "main.p6e", phase: "P6", name: "Worktree merge fan-in (cross-cutting)", t0: 11.5, t1: 13.5, status: "pending", crit: true, body: "Main-owned: pool batch.completed → worktree-merger policy decision (auto-merge non-overlap vs. Canvas approval card) → git ops → decisions.jsonl. Touches pool · Canvas · state · git. Policy call lives at the orchestrator level." },
       { id: "main.p7c", phase: "P7", name: "Planner health-check probe (cross-cutting reads)", t0: 13.5, t1: 14.5, status: "pending", crit: true, body: "Main-owned: post-compaction probe cross-checks against meta.json + agents/*.json + transcript.jsonl tail; on mismatch, re-inject must-preserve blocks into next consult. Reads from 4 subsystems + writes to a 5th." },
@@ -315,7 +315,7 @@ const workers = [
     tasks: [
       { id: "p1.b", phase: "P1", name: "Tool routing smoke test", t0: 0.5, t1: 2, status: "done", body: "Static-verified end-to-end. Bug was upstream (sandbox), fixed by W1." },
       { id: "p3.c", phase: "P3", name: "Side store (harness · decisions · transcript)", t0: 5, t1: 6, status: "done", body: "Commits 48eb11b + 1095db0 — atomic writes, debounced agent snapshots, readWorldState() ready for planner. flushAgentWrites silent-loss fix in e3ff649." },
-      { id: "p4.c", phase: "P4", name: "Codex events → store actions", t0: 8.5, t1: 9.5, status: "next", crit: true, body: "file_change · turn.completed · error → addAgent/updateAgent/blockAgent/completeAgent. Pool already emits the events (see codex-pool.ts); this lane subscribes via ipcSync and dispatches store actions." },
+      { id: "p4.c", phase: "P4", name: "Codex events → store actions", t0: 8.5, t1: 9.5, status: "done", body: "Done — commit 581cce6. handleCodexEvent in ipcSync.ts maps all 8 CodexEventTypes to commands.{addAgent,updateAgent,blockAgent,failAgent,completeAgent}. Vitest covers the 8 cases incl. malformed payloads (5ms total). file_change uses item.changes[].path (SDK shape divergence from prompt — worker followed SDK)." },
       { id: "p6.c", phase: "P6", name: "state.snapshot.json + meta.json writers", t0: 9.5, t1: 10.5, status: "pending", body: "Debounced 1.5s state snapshot (force-flush on quit + rotation + post-orchestrator-response). meta.json with {projectPath, targetAppDir, created, updated, appVersion} atomic-written on goal change. Per architecture.md §3 + §8." },
       { id: "p6.c2", phase: "P6", name: "Resume on launch (Pick up or start fresh)", t0: 10.5, t1: 11.5, status: "pending", body: "On boot: scan ~/.director/sessions/*, find most recent by meta.updated, <7 days old. Pre-load snapshot. Director speaks 'Pick up Mixtape, or start fresh?' Canvas slides out with 2-option picker. On resume: hydrate harness + transcript tail + current goal into planner's first instructions. Active agents do NOT auto-respawn." },
       { id: "p5.b", phase: "P5", name: "Audio cue synthesis", t0: 11.5, t1: 12.5, status: "pending", body: "Web Audio: confirm · tick · escalation · done · halo. NEW DIR src/renderer/src/audio/*." },
@@ -335,7 +335,7 @@ const workers = [
     role: "CANVAS", name: "Worker 5", domain: "Canvas BrowserWindow · GenUI React components · iframe punchline",
     tasks: [
       { id: "p2.c2", phase: "P2", name: "Canvas visual QA", t0: 4, t1: 4.5, status: "done", body: "Folded into Main's R2 review." },
-      { id: "p4.d", phase: "P4", name: "Headless dogfood: real Codex builds Mixtape TODOs", t0: 8.5, t1: 9.5, status: "next", crit: true, body: "Headless-only: CLI script invokes codex-pool directly against examples/mixtape with Jin's task. Verify worktree diff turns route.ts from 501-stub into real impl + Mixtape typecheck + build pass + curl against built/started Mixtape returns 200 with Mixtape JSON. Iframe visual confirmation is folded into the user's R3 hands-on test." },
+      { id: "p4.d", phase: "P4", name: "Headless dogfood: real Codex builds Mixtape TODOs", t0: 8.5, t1: 9.5, status: "done", body: "Done — commits 9b26af5 (refactor codex-pool → core + Electron wrapper), 74a9e8e (dogfood-mixtape.mts), 31f6c33 (ephemeral port + process-group kill fix). Cleo + Jin in parallel ~150–260s each; cherry-pick merge clean; mixtape typecheck + build + 3 curl assertions all green. Run via pnpm --filter director dogfood:mixtape." },
       { id: "p6.f", phase: "P6", name: "Canvas error boundary + degradation cards", t0: 9.5, t1: 11, status: "pending", body: "Moved from W4 → W5 (Canvas-component wheelhouse). React error boundary around CanvasApp + four NEW Canvas components: MicDenied (with macOS Settings deeplink), ApiKeyMissing (text input + save), RotationFailed (soft notice), CanvasError (retry button). Per architecture.md §9." },
     ]
   },
@@ -397,15 +397,15 @@ const checkpoints = [
       "Reviews preserved in docs/reviews/A,B,C,D.md",
     ]
   },
-  { id: "R3", at: 9.5, gates: "P4 finish → P5+P6+P7",
-    title: "3-tier alive + headless dogfood? (headless-only)",
-    sub: "100% headless verification — no workers launch the app, Main does not launch the app for smoke tests. W3 P4c (Codex events → Hive store) verified by unit tests against ipcSync; W5 P4d (CLI dogfood — Jin against examples/mixtape) verified by diff + typecheck + curl. ALL hands-on visual/audio testing is deferred to R4 at the very end of the plan.",
+  { id: "R3", at: 9.5, gates: "P4 finish → P5+P6+P7", status: "passed",
+    title: "3-tier alive + headless dogfood? (passed)",
+    sub: "100% headless verification cleared. Cleo + Jin parallel dispatch, cherry-pick merge clean, mixtape typecheck + build + 3 curl assertions all green. P5+P6+P7 batch cleared to fire.",
     criteria: [
-      "headless: real Codex subprocess spawns with Jin AGENTS.md identity (DIRECTOR_USE_REAL_CODEX=1) via CLI script — no Electron launch",
-      "headless: file_change / turn.completed events emitted on codex.event channel and applied by ipcSync to the store (unit test asserts store transitions from synthetic CodexEvent payloads)",
-      "headless: route.ts diff shows real implementation (no longer 501-stub) + mixtape typecheck + build pass",
-      "headless: curl against built/started mixtape returns 200 with Mixtape JSON",
-      "headless: harness.json + decisions.jsonl + agents/<id>.json on disk after the dogfood run",
+      "headless: real Codex subprocesses spawn with AGENTS.md identities — ✓ Cleo + Jin via codex-pool-core",
+      "headless: file_change / turn.completed events emitted on codex.event channel and applied by ipcSync — ✓ vitest 8/8 green",
+      "headless: route.ts + lib/store.ts diffs show real implementation (no 501-stub, no 'not implemented') + mixtape typecheck + build pass — ✓",
+      "headless: curl POST 200, GET 200, GET 404 against built+started mixtape on ephemeral port — ✓",
+      "headless: harness.json + decisions.jsonl + agents/<id>.json on disk after the dogfood run — ✓ (~/.director/sessions/dogfood-*)",
     ]
   },
   { id: "R4", at: 14.5, gates: "P5+P6+P7 → ship",
