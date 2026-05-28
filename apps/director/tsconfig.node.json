@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "baseUrl": ".",
+    "types": ["node", "electron-vite/node"],
+    "paths": {
+      "@shared/*": ["./src/shared/*"]
+    }
+  },
+  "include": [
+    "src/main/**/*",
+    "src/preload/**/*",
+    "src/shared/**/*",
+    "electron.vite.config.ts"
+  ]
+}

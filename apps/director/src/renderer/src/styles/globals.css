@@ -1,0 +1,147 @@
+@import 'tailwindcss';
+
+/* Inter — variable */
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Design tokens (from docs/ux-design.md Pass 5).
+ * Exposed as CSS custom properties AND mapped into the Tailwind v4 theme via
+ * @theme so utilities like `text-text-primary`, `bg-surface-base`, etc. work.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Surfaces */
+  --surface-base: rgba(20, 20, 22, 0.55);
+  --surface-elevated: rgba(28, 28, 32, 0.72);
+
+  /* Text */
+  --text-primary: #ececf0;
+  --text-secondary: #9b9ba0;
+  --text-tertiary: #5e5e62;
+
+  /* Hairlines */
+  --border-subtle: rgba(255, 255, 255, 0.08);
+
+  /* Status */
+  --status-working: #58d68d;
+  --status-blocked: #e8a95c;
+  --status-thinking: #6e94e8;
+  --status-done: #9b9ba0;
+  --status-error: #e07866;
+
+  /* Agent accents */
+  --accent-maya: #e07856;
+  --accent-jin: #4a9e9c;
+  --accent-cleo: #c99550;
+  --accent-wren: #9670a0;
+
+  /* Motion */
+  --duration-quick: 180ms;
+  --duration-base: 260ms;
+  --duration-canvas-open: 280ms;
+  --pulse-dormant: 1.5s;
+  --pulse-blocked: 0.6s;
+  --ease-smooth: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Geometry */
+  --radius-strip: 14px;
+  --radius-canvas: 22px;
+
+  /* Dormant pulse tint — matches design.pen / Strip / Dormant.
+     Soft blue-cyan (#6E94E8 family), heavily translucent at edges,
+     stronger at midpoint. */
+  --pulse-mid: rgba(110, 148, 232, 0.55);
+  --pulse-soft: rgba(236, 236, 240, 0.04);
+  --pulse-glow: rgba(110, 148, 232, 0.28);
+}
+
+@theme {
+  --color-surface-base: var(--surface-base);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-border-subtle: var(--border-subtle);
+  --color-status-working: var(--status-working);
+  --color-status-blocked: var(--status-blocked);
+  --color-status-thinking: var(--status-thinking);
+  --color-status-done: var(--status-done);
+  --color-status-error: var(--status-error);
+  --color-accent-maya: var(--accent-maya);
+  --color-accent-jin: var(--accent-jin);
+  --color-accent-cleo: var(--accent-cleo);
+  --color-accent-wren: var(--accent-wren);
+
+  --radius-strip: 14px;
+  --radius-canvas: 22px;
+
+  --font-sans:
+    'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, sans-serif;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Base layout
+ * ───────────────────────────────────────────────────────────────────────── */
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  /* Window is transparent — let macOS vibrancy show through. */
+  background: transparent;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+  cursor: default;
+  -webkit-app-region: drag;
+}
+
+body {
+  overflow: hidden;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Strip — dormant
+ *
+ * Dormant strip = 12px wide × 180px tall pill with vertical gradient pulse
+ * (transparent → blue mid → transparent). Source: design.pen / Strip / Dormant.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+.strip-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+  border: 0.5px solid var(--border-subtle);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.35),
+    0 2px 6px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+
+.strip-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  background: linear-gradient(
+    to bottom,
+    var(--pulse-soft) 0%,
+    var(--pulse-mid) 50%,
+    var(--pulse-soft) 100%
+  );
+  box-shadow:
+    0 0 12px var(--pulse-glow),
+    0 0 24px var(--pulse-glow);
+  transform-origin: center;
+}

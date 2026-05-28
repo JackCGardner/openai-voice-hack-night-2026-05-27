@@ -1,0 +1,40 @@
+{
+  "name": "director",
+  "version": "0.0.0",
+  "description": "Director — ambient voice orchestration layer (macOS overlay)",
+  "private": true,
+  "main": "./out/main/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "pnpm typecheck:node && pnpm typecheck:web",
+    "package": "electron-vite build && electron-builder --mac --dir"
+  },
+  "dependencies": {
+    "@electron-toolkit/preload": "^3.0.1",
+    "@electron-toolkit/utils": "^3.0.0",
+    "@fontsource/inter": "^5.1.0",
+    "framer-motion": "^11.11.17",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zustand": "^5.0.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.0-beta.4",
+    "@types/node": "^22.9.0",
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "electron": "^33.2.0",
+    "electron-vite": "^2.3.0",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^4.0.0-beta.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}
