@@ -17,6 +17,7 @@ export const RealtimeToolName = {
   DispatchAgentMock: 'dispatch_agent_mock',
   AskUser: 'ask_user',
   UpdateHarness: 'update_harness',
+  ConsultDirector: 'consult_director',
 } as const;
 export type RealtimeToolName = (typeof RealtimeToolName)[keyof typeof RealtimeToolName];
 
@@ -167,6 +168,30 @@ export function realtimeToolDefs(): Array<Record<string, unknown>> {
           },
         },
         required: ['rule'],
+      },
+    },
+    {
+      type: 'function',
+      name: RealtimeToolName.ConsultDirector,
+      description:
+        "Ask the Director's deeper planner for help with a non-trivial question — architectural decisions, work breakdowns, weighing trade-offs, or anything that benefits from extended reasoning. Returns a brief summary you should narrate aloud and a structured list of decisions. Call this when the user asks 'how should we...?', 'which approach...?', or any question that needs more than a snap answer.",
+      parameters: {
+        type: 'object',
+        required: ['prompt'],
+        properties: {
+          prompt: {
+            type: 'string',
+            description:
+              "The user's question or scenario, restated in your own words for the planner.",
+          },
+          context: {
+            type: 'object',
+            description:
+              'Optional structured context: current file, active agents, recent decisions, etc.',
+            additionalProperties: true,
+          },
+        },
+        additionalProperties: false,
       },
     },
   ];
