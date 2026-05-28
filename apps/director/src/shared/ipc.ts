@@ -113,6 +113,9 @@ export const IpcChannel = {
   RealtimeRotationRequest: 'realtime.rotationRequest', // Worker 2 — P6.1
   /** Renderer → main: reconnect-loop state change (degraded / retrying / live). */
   RealtimeReconnectState: 'realtime.reconnectState',   // Worker 2 — P6.2
+  // ─── § session-resume (W3 — P6.3b) ────────────────────────────────────
+  /** Main → renderer: boot found a <7d-old session; show the resume picker. */
+  SessionResumeAvailable: 'session.resumeAvailable',   // Worker 3 — P6.3b
 } as const;
 
 export type IpcChannel = (typeof IpcChannel)[keyof typeof IpcChannel];
@@ -487,6 +490,15 @@ export interface DirectorBridge {
     /** Report renderer-side reconnect FSM state to main (fire-and-forget). */
     reportReconnectState: (payload: RealtimeReconnectStatePayload) => void;
   };
+  // ─── § session-resume (W3 — P6.3b) ───────────────────────────────────
+  /** Main fires `session.resumeAvailable` once on boot if a <7d-old session
+   *  exists. Renderer queues a "Pick up X, or start fresh?" utterance +
+   *  opens the `options_picker` canvas. See remaining-phases.md § 6.3b. */
+  session: {
+    onResumeAvailable: (
+      cb: (payload: SessionResumeAvailablePayload) => void,
+    ) => () => void;
+  };
 }
 
 declare global {
@@ -521,6 +533,8 @@ export interface IpcSendMap {
   [IpcChannel.CodexEvent]: CodexEvent;
   // § realtime-rotation + reconnect (W2 — P6.1 + P6.2)
   [IpcChannel.RealtimeReconnectState]: RealtimeReconnectStatePayload;
+  // § session-resume (W3 — P6.3b)
+  [IpcChannel.SessionResumeAvailable]: SessionResumeAvailablePayload;
 }
 
 /** Invoke-style channels (request → ack). */
@@ -586,6 +600,30 @@ export interface AppWriteEnvRequest {
 export type AppWriteEnvResponse =
   | { ok: true; path: string }
   | { ok: false; error: string };
+
+// ─── § session-resume payloads (W3 — P6.3b) ─────────────────────────────
+// Main fires this once on boot. The preview is intentionally small so the
+// renderer can render the picker before the user has spoken anything yet.
+// The full `state.snapshot.json` is pre-loaded by main but NOT applied
+// until the user picks "Resume" — see remaining-phases.md § 6.3b protocol.
+
+export interface SessionResumePreview {
+  /** Session directory slug (timestamp + uuid). */
+  sessionId: string;
+  /** Friendly project name — `meta.name` falling back to projectPath. */
+  projectName: string | null;
+  /** The active goal at last meta update, if any. */
+  currentGoal: string | null;
+  /** ms epoch of `meta.updatedAt`. */
+  lastActiveAt: number;
+  /** Absolute path to the session dir (for debugging / future "Browse"). */
+  dir: string;
+}
+
+export interface SessionResumeAvailablePayload {
+  resumeAvailable: true;
+  sessionPreview: SessionResumePreview;
+}
 
 
 // ─── Re-export state types so callers only need this import ──────────────

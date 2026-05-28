@@ -36,6 +36,12 @@ import type {
   AppWriteEnvRequest,
   AppWriteEnvResponse,
 } from '../shared/ipc.js';
+// ─── § session-resume (W3 — P6.3b) ──────────────────────────────────────
+import {
+  findResumableSession,
+  forceFlushSnapshot,
+} from './side-store.js';
+import type { SessionResumeAvailablePayload } from '../shared/ipc.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
@@ -479,6 +485,16 @@ app.whenReady().then(() => {
   registerPlannerDevIpc(stripWindow);
   registerCodexPoolIpc(stripWindow);
 
+  // ─── § session-resume (W3 — P6.3b) ──────────────────────────────────
+  // Scan the on-disk sessions dir for a <7d-old session. If found,
+  // forward a small preview to the strip renderer once it's ready —
+  // ipcSync turns that into a transcript utterance + options_picker
+  // Canvas. The snapshot itself is NOT applied at this stage; the
+  // renderer stages the prompt and the user picks "Resume" / "Start
+  // fresh". The actual hydration call is deferred until the picker
+  // resolves (post-R3 follow-up).
+  void announceResumableSession();
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       stripWindow = createStripWindow();
@@ -505,4 +521,58 @@ app.on('before-quit', () => {
   void abortAllAgents().catch((err) =>
     console.warn('[director] abortAllAgents during before-quit failed', err),
   );
+  // ─── § session-resume (W3 — P6.3b) ──────────────────────────────────
+  // Drain the debounced state.snapshot.json + meta.json writers so the
+  // next launch sees state ≤1.5s before the kill. Fire-and-forget — the
+  // before-quit event is synchronous, but flushSnapshotNow uses an
+  // atomic tmp+rename which is fast enough that the process typically
+  // exits cleanly after this promise resolves. SIGKILL still beats us,
+  // by definition; this covers all polite quit paths.
+  void forceFlushSnapshot().catch((err) =>
+    console.warn('[director] forceFlushSnapshot during before-quit failed', err),
+  );
 });
+
+// ─── § session-resume (W3 — P6.3b) ──────────────────────────────────────
+// Append-only helper. Lives below the main lifecycle handlers so its
+// dependencies (stripWindow) are guaranteed to be defined. Looks up the
+// most recent on-disk session via the side-store scanner; if found, waits
+// for the strip renderer to be ready and posts the preview over the
+// `session.resumeAvailable` channel.
+async function announceResumableSession(): Promise<void> {
+  let preview;
+  try {
+    preview = await findResumableSession();
+  } catch (err) {
+    console.warn('[director] findResumableSession failed', err);
+    return;
+  }
+  if (!preview) return;
+  const payload: SessionResumeAvailablePayload = {
+    resumeAvailable: true,
+    sessionPreview: {
+      sessionId: preview.sessionId,
+      projectName: preview.projectName,
+      currentGoal: preview.currentGoal,
+      lastActiveAt: preview.lastActiveAt,
+      dir: preview.dir,
+    },
+  };
+  console.log(
+    `[director] resumable session found id=${preview.sessionId} goal=${preview.currentGoal ?? '(none)'}`,
+  );
+  const target = stripWindow;
+  if (!target || target.isDestroyed()) return;
+  const send = (): void => {
+    try {
+      target.webContents.send(IpcChannel.SessionResumeAvailable, payload);
+    } catch (err) {
+      console.warn('[director] session.resumeAvailable send failed', err);
+    }
+  };
+  if (target.webContents.isLoading()) {
+    target.webContents.once('did-finish-load', send);
+  } else {
+    send();
+  }
+}

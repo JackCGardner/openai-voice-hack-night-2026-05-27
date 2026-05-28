@@ -545,3 +545,282 @@ export async function readLastOrchestratorResponseId(): Promise<string | null> {
   }
   return null;
 }
+
+// ─── § state-snapshot+meta (W3 — P6.3 + P6.3b) ──────────────────────────
+// Append-only marker per docs/contracts.md § 13.1. This block adds:
+//
+//   - `writeStateSnapshot(snapshot)`  — debounced 1.5s persistor for the
+//     renderer's serializable store at `state.snapshot.json`.
+//   - `forceFlushSnapshot()`          — synchronous trailing flush for
+//     `app.quit`, session rotation, post-orchestrator response.
+//   - `writeMeta(meta)` / `readMeta()` — `meta.json` { projectPath,
+//     targetAppDir, name, createdAt, updatedAt, appVersion, currentGoal,
+//     schemaVersion } atomic-written on goal / project / version change.
+//   - `readSnapshot()`                — hydration source on resume.
+//   - `findResumableSession()`        — boot scanner — returns the most
+//     recent <7-day-old session by `meta.updatedAt`, with a small preview
+//     payload main forwards over `session.resumeAvailable` IPC.
+//
+// All writes go through `atomicWrite()` (tmp + rename) defined above. All
+// reads tolerate missing files / malformed JSON with a safe default.
+
+/** Bump on any incompatible disk format change. */
+export const SIDESTORE_SCHEMA_VERSION = 1 as const;
+
+/**
+ * `meta.json` shape — small, human-readable session header. Carries the
+ * fields the resume flow needs to render a preview ("Pick up <name>?")
+ * without loading the full snapshot.
+ */
+export interface SessionMeta {
+  schemaVersion: typeof SIDESTORE_SCHEMA_VERSION;
+  /** Filesystem path to the user's project root (e.g. `~/code/mixtape`). */
+  projectPath: string | null;
+  /** Subdir of `projectPath` Director writes generated code into (optional). */
+  targetAppDir: string | null;
+  /** Friendly display name — usually `basename(projectPath)`. */
+  name: string | null;
+  /** ms epoch — first time this session was created. */
+  createdAt: number;
+  /** ms epoch — last time meta or snapshot was touched. */
+  updatedAt: number;
+  /** Director app version (`package.json`), useful for migration sniffing. */
+  appVersion: string | null;
+  /** The active goal string at last meta update; null on fresh session. */
+  currentGoal: string | null;
+}
+
+/**
+ * Lightweight preview surfaced to the renderer on boot. Keep small — this
+ * crosses the IPC boundary AND gets read before the user has even said
+ * anything yet. Full snapshot lives behind a separate `readSnapshot()`.
+ */
+export interface ResumableSessionPreview {
+  sessionId: string;
+  projectName: string | null;
+  currentGoal: string | null;
+  /** ms epoch of `meta.updatedAt`. */
+  lastActiveAt: number;
+  /** Absolute path to the session directory. */
+  dir: string;
+}
+
+/** Persisted shape of `state.snapshot.json`. Wraps the serializable store
+ *  with a schema version so future versions can migrate cleanly. */
+export interface PersistedSnapshot {
+  schemaVersion: typeof SIDESTORE_SCHEMA_VERSION;
+  /** ms epoch of write. */
+  at: number;
+  /** Serializable view of the renderer store (no timer handles etc). */
+  store: unknown;
+}
+
+const SNAPSHOT_DEBOUNCE_MS = 1500;
+const RESUMABLE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Single in-flight debounce state. We coalesce multiple `writeStateSnapshot`
+// calls within `SNAPSHOT_DEBOUNCE_MS` into one disk write — keeps the
+// renderer free to spam state mutations without thrashing the FS.
+let snapshotTimer: NodeJS.Timeout | null = null;
+let snapshotPending: unknown = null;
+let snapshotInFlight: Promise<void> | null = null;
+
+function snapshotFilePath(): string {
+  return join(requireDir(), 'state.snapshot.json');
+}
+
+function metaFilePath(): string {
+  return join(requireDir(), 'meta.json');
+}
+
+async function flushSnapshotNow(): Promise<void> {
+  const data = snapshotPending;
+  snapshotPending = null;
+  if (snapshotTimer) {
+    clearTimeout(snapshotTimer);
+    snapshotTimer = null;
+  }
+  if (data === null) return;
+  const payload: PersistedSnapshot = {
+    schemaVersion: SIDESTORE_SCHEMA_VERSION,
+    at: Date.now(),
+    store: data,
+  };
+  try {
+    await atomicWrite(snapshotFilePath(), JSON.stringify(payload));
+  } catch (err) {
+    console.warn('[side-store] state.snapshot.json write failed', err);
+  }
+}
+
+/**
+ * Persist a serializable renderer store snapshot to
+ * `state.snapshot.json`. Debounced — successive calls within 1.5s
+ * collapse into a single trailing write. Use `forceFlushSnapshot()` to
+ * drain the queue at quit / rotation / post-orch-response.
+ *
+ * Defensive: callers may pass `null` / wrong shape; we accept anything
+ * structured-clone-safe and let the JSON serializer decide.
+ */
+export function writeStateSnapshot(snapshot: unknown): void {
+  if (snapshot === undefined) {
+    console.warn('[side-store] writeStateSnapshot called with undefined; ignoring');
+    return;
+  }
+  snapshotPending = snapshot;
+  if (snapshotTimer) return; // already scheduled — leading-edge debounce
+  snapshotTimer = setTimeout(() => {
+    snapshotTimer = null;
+    snapshotInFlight = flushSnapshotNow().finally(() => {
+      snapshotInFlight = null;
+    });
+  }, SNAPSHOT_DEBOUNCE_MS);
+}
+
+/**
+ * Synchronously drain the pending snapshot (if any) and await both the
+ * trailing in-flight write AND the freshly-flushed write. Safe to call
+ * even when no snapshot has been queued.
+ *
+ * `before-quit` and the session-rotation handshake call this.
+ */
+export async function forceFlushSnapshot(): Promise<void> {
+  // Always run a fresh flush (even with no queued data so the in-flight
+  // promise gets awaited deterministically).
+  await flushSnapshotNow();
+  if (snapshotInFlight) {
+    try {
+      await snapshotInFlight;
+    } catch (err) {
+      console.warn('[side-store] forceFlushSnapshot in-flight rejected', err);
+    }
+  }
+}
+
+/** Read the last-persisted snapshot — or null on missing / corrupt file. */
+export async function readSnapshot(
+  dir?: string,
+): Promise<PersistedSnapshot | null> {
+  const path = dir ? join(dir, 'state.snapshot.json') : snapshotFilePath();
+  try {
+    const raw = await fs.readFile(path, 'utf8');
+    const parsed = JSON.parse(raw) as PersistedSnapshot;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch (err) {
+    if (isENOENT(err)) return null;
+    console.warn(`[side-store] readSnapshot failed for ${path}`, err);
+    return null;
+  }
+}
+
+/**
+ * Atomic write of `meta.json`. Always carries the current schema version +
+ * a fresh `updatedAt`. Missing fields on the input are filled from the
+ * existing meta file (creating new sessions with `createdAt: now` if no
+ * prior meta exists).
+ */
+export async function writeMeta(
+  patch: Partial<SessionMeta>,
+): Promise<SessionMeta> {
+  const current = (await readMeta()) ?? {
+    schemaVersion: SIDESTORE_SCHEMA_VERSION,
+    projectPath: null,
+    targetAppDir: null,
+    name: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    appVersion: null,
+    currentGoal: null,
+  };
+  const next: SessionMeta = {
+    schemaVersion: SIDESTORE_SCHEMA_VERSION,
+    projectPath: patch.projectPath ?? current.projectPath,
+    targetAppDir: patch.targetAppDir ?? current.targetAppDir,
+    name: patch.name ?? current.name,
+    createdAt: current.createdAt,
+    updatedAt: Date.now(),
+    appVersion: patch.appVersion ?? current.appVersion,
+    currentGoal:
+      patch.currentGoal !== undefined ? patch.currentGoal : current.currentGoal,
+  };
+  await atomicWrite(metaFilePath(), JSON.stringify(next, null, 2));
+  return next;
+}
+
+/** Read `meta.json` — or null on missing / corrupt file. */
+export async function readMeta(dir?: string): Promise<SessionMeta | null> {
+  const path = dir ? join(dir, 'meta.json') : metaFilePath();
+  try {
+    const raw = await fs.readFile(path, 'utf8');
+    const parsed = JSON.parse(raw) as SessionMeta;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch (err) {
+    if (isENOENT(err)) return null;
+    console.warn(`[side-store] readMeta failed for ${path}`, err);
+    return null;
+  }
+}
+
+/**
+ * Scan `~/.director/sessions/*` for resumable sessions. Returns the most
+ * recently active session (by `meta.updatedAt`) that's <7 days old, or
+ * null if no candidate exists. Safe on a clean install (no sessions
+ * directory = returns null).
+ *
+ * Boot path uses this BEFORE calling `initSession()` — that way main can
+ * either pre-load the existing session id (resume) or let `initSession()`
+ * mint a new slug (start fresh).
+ */
+export async function findResumableSession(opts?: {
+  sessionsRoot?: string;
+  maxAgeMs?: number;
+  now?: number;
+}): Promise<ResumableSessionPreview | null> {
+  const root =
+    opts?.sessionsRoot ?? join(homedir(), '.director', 'sessions');
+  const maxAge = opts?.maxAgeMs ?? RESUMABLE_WINDOW_MS;
+  const now = opts?.now ?? Date.now();
+  let entries: string[];
+  try {
+    entries = await fs.readdir(root);
+  } catch (err) {
+    if (isENOENT(err)) return null;
+    console.warn('[side-store] findResumableSession readdir failed', err);
+    return null;
+  }
+  let best: ResumableSessionPreview | null = null;
+  for (const entry of entries) {
+    const dir = join(root, entry);
+    try {
+      const stat = await fs.stat(dir);
+      if (!stat.isDirectory()) continue;
+    } catch {
+      continue;
+    }
+    const meta = await readMeta(dir);
+    if (!meta || typeof meta.updatedAt !== 'number') continue;
+    if (now - meta.updatedAt > maxAge) continue;
+    const preview: ResumableSessionPreview = {
+      sessionId: entry,
+      projectName: meta.name ?? meta.projectPath ?? entry,
+      currentGoal: meta.currentGoal ?? null,
+      lastActiveAt: meta.updatedAt,
+      dir,
+    };
+    if (!best || preview.lastActiveAt > best.lastActiveAt) {
+      best = preview;
+    }
+  }
+  return best;
+}
+
+/** Test-only: drop the in-memory snapshot debounce so a new test can
+ *  start clean. Mirrors `_resetSessionForTests()` semantics. */
+export function _resetSnapshotForTests(): void {
+  if (snapshotTimer) clearTimeout(snapshotTimer);
+  snapshotTimer = null;
+  snapshotPending = null;
+  snapshotInFlight = null;
+}

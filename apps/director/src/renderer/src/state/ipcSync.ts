@@ -22,6 +22,7 @@ import type {
 } from '../../../shared/state.js';
 import type {
   AskShowPayload,
+  SessionResumeAvailablePayload,
   StatePatchPayload,
 } from '../../../shared/ipc.js';
 import type { CodexEvent } from '../../../shared/codex.js';
@@ -329,6 +330,94 @@ function handleAsk(payload: AskShowPayload): void {
   void payload;
 }
 
+// ─── § session-resume (W3 — P6.3b) ───────────────────────────────────────
+// Main fires `session.resumeAvailable` once on boot if a prior <7d-old
+// session exists. We:
+//   1. Append a transcript entry ("Pick up <name>, or start fresh?") so the
+//      Captions overlay + chat-debug surface both reflect Director's
+//      prompt verbatim. Marked `metadata.kind: 'proactive_announcement'`
+//      so downstream renderers can style it differently (Pass 6 of UX).
+//   2. Open the `options_picker` Canvas with two choices: Resume + Start
+//      fresh. The Canvas component is interactive — its eventual response
+//      will dispatch into the planner's first turn or seed a new session.
+//
+// Defensive: malformed payloads noop with a `console.warn`. Renderer never
+// crashes on a bad session-resume event.
+
+const RESUME_PICKER_COMPONENT_ID = 'session-resume-picker';
+
+/**
+ * Pure transformer exposed for unit tests. Builds the canvas args + the
+ * transcript content for a given preview. Callers feed these into
+ * `commands.appendTranscript` + `commands.openCanvas` respectively.
+ */
+export function buildResumePicker(
+  preview: SessionResumeAvailablePayload['sessionPreview'],
+): {
+  question: string;
+  canvasArgs: Parameters<typeof commands.openCanvas>[0];
+} {
+  const projectName =
+    typeof preview?.projectName === 'string' && preview.projectName.length > 0
+      ? preview.projectName
+      : 'your last session';
+  const goalSuffix =
+    typeof preview?.currentGoal === 'string' && preview.currentGoal.length > 0
+      ? ` Last goal: "${preview.currentGoal}".`
+      : '';
+  const question = `Pick up ${projectName}, or start fresh?${goalSuffix}`;
+  return {
+    question,
+    canvasArgs: {
+      componentId: RESUME_PICKER_COMPONENT_ID,
+      component: 'options_picker',
+      props: {
+        title: 'Resume?',
+        question,
+        sessionId: preview?.sessionId ?? null,
+        options: [
+          { id: 'resume', label: `Pick up ${projectName}` },
+          { id: 'fresh', label: 'Start fresh' },
+        ],
+      },
+      interactive: true,
+    },
+  };
+}
+
+export function handleSessionResumeAvailable(
+  payload: SessionResumeAvailablePayload,
+): void {
+  if (!payload || typeof payload !== 'object') {
+    console.warn('[ipcSync] dropping malformed session.resumeAvailable', payload);
+    return;
+  }
+  if (payload.resumeAvailable !== true || !payload.sessionPreview) {
+    console.warn(
+      '[ipcSync] session.resumeAvailable without preview',
+      payload,
+    );
+    return;
+  }
+  const { question, canvasArgs } = buildResumePicker(payload.sessionPreview);
+  try {
+    commands.appendTranscript({
+      id: `session-resume-${Date.now()}`,
+      role: 'assistant',
+      content: question,
+      timestamp: Date.now(),
+      metadata: { kind: 'proactive_announcement' },
+    });
+  } catch (err) {
+    console.warn('[ipcSync] resume transcript publish failed', err);
+  }
+  try {
+    commands.openCanvas(canvasArgs);
+  } catch (err) {
+    console.warn('[ipcSync] resume canvas openCanvas failed', err);
+  }
+}
+
 // ─── Public init ─────────────────────────────────────────────────────────
 
 let initialized = false;
@@ -361,6 +450,17 @@ export function initIpcSync(): void {
     unsubscribers.push(bridge.codex.onEvent(handleCodexEvent));
   } else {
     console.warn('[ipcSync] bridge.codex.onEvent not exposed — codex events dropped');
+  }
+
+  // § session-resume (W3 — P6.3b)
+  if (bridge.session?.onResumeAvailable) {
+    unsubscribers.push(
+      bridge.session.onResumeAvailable(handleSessionResumeAvailable),
+    );
+  } else {
+    console.warn(
+      '[ipcSync] bridge.session.onResumeAvailable not exposed — resume picker disabled',
+    );
   }
 }
 

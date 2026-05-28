@@ -21,6 +21,7 @@ import {
   type RealtimeReconnectStatePayload,
   type RealtimeRotationRequestPayload,
   type RealtimeRotationResponse,
+  type SessionResumeAvailablePayload,
 } from '../shared/ipc.js';
 import type { CodexEvent } from '../shared/codex.js';
 import type {
@@ -114,6 +115,21 @@ const api: DirectorBridge = {
         // Best-effort: never let a degraded-state report crash the client.
         console.warn('[preload] realtimeRotation.reportReconnectState failed', err);
       }
+    },
+  },
+  // ─── § session-resume (W3 — P6.3b) ─────────────────────────────────────
+  session: {
+    onResumeAvailable(cb) {
+      const listener = (
+        _evt: unknown,
+        payload: SessionResumeAvailablePayload,
+      ): void => cb(payload);
+      ipcRenderer.on(IpcChannel.SessionResumeAvailable, listener);
+      return () =>
+        ipcRenderer.removeListener(
+          IpcChannel.SessionResumeAvailable,
+          listener,
+        );
     },
   },
 };
