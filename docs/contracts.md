@@ -1,9 +1,17 @@
 # Director — Contracts
 
-> **Version**: 2026-05-27.1
+> **Version**: 2026-05-27.2
 > **Status**: Source of truth for cross-worker integration. Every agent prompt MUST point at this doc. Every contract change is a commit that updates the version above.
 
 This file is the single shared boundary between workers. If two workers are about to touch the same shape, this is where they agree on it BEFORE writing code. The hackathon retrospective made the diagnosis: subsystems worked in isolation; the integration boundary failed because no canonical contract existed. This is that document.
+
+**Doc vs. code:** this doc describes the **canonical contracts + principles**. The authoritative *full enumeration* of every channel and type lives in:
+- `apps/director/src/shared/ipc.ts` — `IpcChannel` enum + all payload interfaces (strip + main IPC)
+- `apps/director/src/shared/canvas-ipc.ts` — `CanvasIpcChannel` enum + canvas-window IPC
+- `apps/director/src/shared/state.ts` — all state types (Agent, StripState, etc.)
+- `apps/director/src/shared/realtime.ts` — Realtime types + `DIRECTOR_INSTRUCTIONS`
+
+When the doc and code disagree, the rule is: **proposing a contract change = a doc commit FIRST, then the code change.** If you find code that drifts from the doc, file a `docs(contracts): clarify <name>` to bring the doc in line, or a `docs(contracts): change <name>` if the code is wrong.
 
 ---
 
@@ -157,11 +165,26 @@ export interface RealtimeEphemeralToken {
 
 ## 3. IPC channels
 
-Channel names are **canonical strings**. Enum lives in `apps/director/src/shared/ipc.ts` as `IpcChannel`. Never use string literals — always import the enum.
+Channel names are **canonical strings**. The full enum is the authoritative list — this table covers the **core canonical channels every worker needs to know** plus naming conventions. Never use string literals — always import from the enum.
+
+**Files**:
+- `apps/director/src/shared/ipc.ts` exports the `IpcChannel` const + all payload type interfaces (Strip + main IPC surface)
+- `apps/director/src/shared/canvas-ipc.ts` exports `CanvasIpcChannel` separately (Canvas BrowserWindow has its own preload + bridge)
+
+**Naming convention** (apply to all new channels):
+- Modern: `<domain>.<action>` (`tool.call`, `state.patch`, `realtime.sessionUpdate`)
+- Domains in use: `realtime · tool · state · hotkey · mic · audio · app · window · canvas · ask`
+- **Legacy carve-out**: four `director:*` channels predate the convention (`director:hotkey-pressed`, `director:get-dormant-state`, `director:request-summon`, `director:realtime-mint-token`). They keep their wire strings to avoid breaking the W1 scaffold. Don't add new `director:*` channels.
+
+**Envelope shape** for invoke responses: `IpcAck<T> = { ok: true; ...T } | { ok: false; error: string }`.
+
+### Core canonical channels (subset)
 
 | Channel | Direction | Payload type | Trigger | Consumer |
 |---|---|---|---|---|
-| `realtime.mintToken` | invoke renderer→main | `RealtimeSessionRequest` → `RealtimeEphemeralToken` | RealtimeClient.connect() | main: mintEphemeralToken() |
+| `director:realtime-mint-token` (legacy) | invoke renderer→main | `RealtimeMintTokenRequest` → `RealtimeMintTokenResponse` | RealtimeClient.connect() | main: mintEphemeralToken() |
+| `realtime.sessionUpdate` | invoke renderer→main | `RealtimeSessionUpdatePayload` | mid-session reconfig | main: forwards to Realtime API |
+| `realtime.rotationReady` | send main→renderer | `RotationReadyPayload` | 55-min rotation primed | renderer: World State Brief swap |
 | `tool.call` | invoke renderer→main, then main→renderer broadcast | `ToolCallRequest` → `ToolCallResponse` | Realtime function_call.done event | main: tool-router |
 | `tool.result` | send main→renderer | `ToolResultPayload` | tool-router completes | renderer: realtime client (for round-trip back to Realtime) |
 | `canvas.render` | send (both directions accepted) | `CanvasRenderPayload` | tool-router OR dev hotkey | canvas window renderer |

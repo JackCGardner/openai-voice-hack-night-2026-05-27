@@ -28,7 +28,7 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: "Inter", system-ui, -apple-system, sans-serif; font-feature-settings: "ss01", "cv11"; }
-body { padding: 32px 40px 80px; max-width: 1800px; margin: 0 auto; }
+body { padding: 32px 40px 80px; max-width: 1900px; margin: 0 auto; }
 
 header { display: flex; align-items: center; gap: 32px; padding-bottom: 24px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
 header h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
@@ -42,10 +42,8 @@ h2 .note { color: var(--text-3); font-weight: 400; text-transform: none; letter-
 
 .banner {
   background: linear-gradient(135deg, rgba(232,169,92,0.08), rgba(232,169,92,0.02));
-  border: 1px solid rgba(232,169,92,0.3);
-  border-radius: 14px;
-  padding: 16px 22px;
-  margin-bottom: 24px;
+  border: 1px solid rgba(232,169,92,0.3); border-radius: 14px;
+  padding: 16px 22px; margin-bottom: 24px;
   display: flex; align-items: center; gap: 16px;
 }
 .banner .pill { font-family: "JetBrains Mono", monospace; font-size: 11px; padding: 3px 8px; background: rgba(232,169,92,0.18); color: var(--amber); border-radius: 5px; white-space: nowrap; }
@@ -53,105 +51,123 @@ h2 .note { color: var(--text-3); font-weight: 400; text-transform: none; letter-
 .banner .text strong { color: var(--text); }
 .banner code { background: var(--surface-2); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
 
+/* Legend */
+.legend { display: flex; gap: 18px; align-items: center; margin: 0 0 12px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); }
+.legend .item { display: inline-flex; align-items: center; gap: 6px; }
+.legend .swatch { width: 14px; height: 12px; border-radius: 3px; border: 1px solid var(--border-strong); }
+.legend .swatch.role-MAIN { background: rgba(110,148,232,0.4); }
+.legend .swatch.role-VOICE { background: rgba(74,158,156,0.4); }
+.legend .swatch.role-STATE { background: rgba(88,214,141,0.4); }
+.legend .swatch.role-UI { background: rgba(224,120,86,0.4); }
+.legend .swatch.role-CANVAS { background: rgba(150,112,160,0.4); }
+.legend .swatch.role-MIXTAPE { background: rgba(232,169,92,0.4); }
+.legend .swatch.crit-border { background: transparent; box-shadow: inset 0 0 0 2px rgba(242,107,92,0.7); }
+.legend .swatch.done-tint { background: rgba(155,155,160,0.3); }
+
 /* ── Gantt ─────────────────────────────────────────────────────────────── */
 .gantt {
   background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
-  padding: 14px 0 6px;
-  overflow-x: auto;
+  padding: 14px 0 6px; overflow-x: auto;
 }
-.gantt-grid-header { display: grid; grid-template-columns: 260px 1fr; gap: 0; min-width: 1300px; }
-.gantt-label-cell { padding: 0 12px 10px 20px; font-size: 11px; color: var(--text-3); letter-spacing: 0.4px; text-transform: uppercase; }
-.gantt-timeline { position: relative; height: 22px; display: grid; }
-.gantt-tick { border-left: 1px dashed var(--border); font-family: "JetBrains Mono", monospace; font-size: 10px; color: var(--text-3); display: flex; align-items: flex-end; padding-bottom: 3px; padding-left: 5px; }
-.gantt-tick:first-of-type { border-left: none; }
+.gantt-grid { position: relative; min-width: 1500px; }
 
-/* phase = section header row + lane rows underneath */
-.phase-section { border-top: 1px solid var(--border-strong); }
-.phase-header {
-  display: grid; grid-template-columns: 260px 1fr; gap: 0; min-width: 1300px;
-  background: rgba(255,255,255,0.025);
-  padding: 10px 0;
-}
-.phase-header .phase-label { padding: 0 12px 0 20px; }
-.phase-header .badge { display: inline-block; font-family: "JetBrains Mono", monospace; font-size: 10px; padding: 2px 8px; border-radius: 4px; margin-right: 8px; vertical-align: 2px; }
-.phase-header .title { font-weight: 600; font-size: 14px; color: var(--text); }
-.phase-header .sub { display: block; color: var(--text-2); font-weight: 400; font-size: 11px; margin-top: 2px; }
-.phase-header .duration { padding: 0 16px; font-size: 11px; color: var(--text-3); font-family: "JetBrains Mono", monospace; align-self: center; }
-.phase-header .timespan {
-  position: relative; height: 6px; align-self: center; margin: 0 12px;
-}
-.phase-header .timespan .ghost {
-  position: absolute; top: 0; bottom: 0; border-radius: 3px; background: rgba(255,255,255,0.06);
-}
+.gantt-header { display: grid; grid-template-columns: 220px 1fr; gap: 0; }
+.header-label { padding: 0 12px 8px 20px; font-size: 11px; color: var(--text-3); letter-spacing: 0.4px; text-transform: uppercase; }
+.header-ticks { position: relative; display: grid; height: 28px; align-items: end; }
+.tick { border-left: 1px dashed var(--border); font-family: "JetBrains Mono", monospace; font-size: 10px; color: var(--text-3); padding: 0 4px 4px 5px; }
+.tick:first-of-type { border-left: none; }
 
-.phase-p0 .badge { background: rgba(155,155,160,0.18); color: var(--text-2); }
-.phase-p1 .badge { background: rgba(242,107,92,0.22); color: var(--crit); }
-.phase-p2 .badge { background: rgba(224,120,86,0.22); color: var(--coral); }
-.phase-p3 .badge { background: rgba(110,148,232,0.22); color: var(--blue); }
-.phase-p4 .badge { background: rgba(150,112,160,0.22); color: var(--plum); }
-.phase-p5 .badge { background: rgba(232,169,92,0.22); color: var(--amber); }
-.phase-p6 .badge { background: rgba(88,214,141,0.22); color: var(--green); }
+/* Worker row */
+.worker-row { display: grid; grid-template-columns: 220px 1fr; gap: 0; border-top: 1px solid var(--border); padding: 10px 0; min-height: 56px; }
+.worker-label { padding: 0 12px 0 20px; display: flex; flex-direction: column; justify-content: center; }
+.worker-label .role { font-family: "JetBrains Mono", monospace; font-size: 10px; padding: 2px 8px; border-radius: 4px; align-self: flex-start; }
+.worker-label .name { font-size: 13px; color: var(--text); font-weight: 500; margin-top: 4px; }
+.worker-label .domain { font-size: 11px; color: var(--text-2); margin-top: 2px; }
 
-.lane-row {
-  display: grid; grid-template-columns: 260px 1fr; gap: 0;
-  border-top: 1px dashed var(--border);
-  padding: 10px 0;
-  min-width: 1300px;
-}
-.lane-label { padding: 0 12px 0 38px; }
-.lane-label .lane-id { font-family: "JetBrains Mono", monospace; font-size: 10px; color: var(--text-3); }
-.lane-label .lane-name { font-size: 12px; color: var(--text); font-weight: 500; margin-top: 2px; }
-.lane-label .lane-owner { font-size: 10px; color: var(--text-3); margin-top: 2px; font-family: "JetBrains Mono", monospace; }
+.worker-label .role-MAIN { background: rgba(110,148,232,0.18); color: var(--blue); }
+.worker-label .role-VOICE { background: rgba(74,158,156,0.22); color: var(--teal); }
+.worker-label .role-STATE { background: rgba(88,214,141,0.18); color: var(--green); }
+.worker-label .role-UI { background: rgba(224,120,86,0.18); color: var(--coral); }
+.worker-label .role-CANVAS { background: rgba(150,112,160,0.18); color: var(--plum); }
+.worker-label .role-MIXTAPE { background: rgba(232,169,92,0.18); color: var(--amber); }
 
-.lane-bars { position: relative; height: 28px; }
+.worker-bars { position: relative; }
 
 .bar {
-  position: absolute; top: 4px; bottom: 4px;
+  position: absolute; top: 8px; bottom: 8px;
   border-radius: 5px;
-  background: var(--surface-2);
-  border: 1px solid var(--border-strong);
-  display: flex; align-items: center;
-  padding: 0 8px;
+  background: var(--surface-2); border: 1px solid var(--border-strong);
+  display: flex; align-items: center; padding: 0 8px;
   font-size: 11px; color: var(--text);
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-  cursor: default;
-  transition: filter 0.15s, transform 0.15s;
+  cursor: default; transition: filter 0.15s, transform 0.15s;
 }
-.bar:hover { filter: brightness(1.2); transform: translateY(-1px); z-index: 4; }
-.bar.done { background: rgba(155,155,160,0.18); border-color: rgba(155,155,160,0.4); color: var(--text-2); }
+.bar:hover { filter: brightness(1.2); transform: translateY(-1px); z-index: 6; }
+.bar.done { background: rgba(155,155,160,0.22); border-color: rgba(155,155,160,0.45); color: var(--text-2); }
 .bar.done::after { content: " ✓"; color: var(--green); margin-left: 4px; }
 .bar.blocked { background: rgba(242,107,92,0.22); border-color: rgba(242,107,92,0.7); }
-.bar.blocked::after { content: " ⛔"; color: var(--crit); margin-left: 4px; }
-.bar.next { background: rgba(110,148,232,0.26); border-color: rgba(110,148,232,0.7); }
+.bar.blocked::after { content: " ⛔"; margin-left: 4px; }
+.bar.next { background: rgba(110,148,232,0.3); border-color: rgba(110,148,232,0.7); }
 .bar.next::after { content: " ▸"; color: var(--blue); margin-left: 4px; }
-.bar.crit { box-shadow: inset 0 0 0 1px rgba(242,107,92,0.5); }
+.bar.crit { box-shadow: inset 0 0 0 2px rgba(242,107,92,0.7); }
+.bar .phase-tag { font-family: "JetBrains Mono", monospace; font-size: 9px; opacity: 0.6; margin-right: 5px; }
 
-/* Lane color hue (subtle) — same role color across phases */
-.lane-MAIN .lane-id, .lane-MAIN .bar { /* main process */ }
-.bar.role-MAIN { background: rgba(110,148,232,0.16); border-color: rgba(110,148,232,0.45); }
-.bar.role-VOICE { background: rgba(110,148,232,0.16); border-color: rgba(110,148,232,0.45); }
-.bar.role-STATE { background: rgba(88,214,141,0.16); border-color: rgba(88,214,141,0.45); }
-.bar.role-UI { background: rgba(224,120,86,0.16); border-color: rgba(224,120,86,0.45); }
-.bar.role-CANVAS { background: rgba(150,112,160,0.16); border-color: rgba(150,112,160,0.45); }
-.bar.role-MIXTAPE { background: rgba(232,169,92,0.16); border-color: rgba(232,169,92,0.45); }
-.bar.role-docs { background: rgba(94,94,98,0.18); border-color: rgba(94,94,98,0.4); color: var(--text-2); }
+.bar.role-MAIN { background: rgba(110,148,232,0.18); border-color: rgba(110,148,232,0.5); }
+.bar.role-VOICE { background: rgba(74,158,156,0.22); border-color: rgba(74,158,156,0.55); }
+.bar.role-STATE { background: rgba(88,214,141,0.18); border-color: rgba(88,214,141,0.5); }
+.bar.role-UI { background: rgba(224,120,86,0.18); border-color: rgba(224,120,86,0.5); }
+.bar.role-CANVAS { background: rgba(150,112,160,0.18); border-color: rgba(150,112,160,0.5); }
+.bar.role-MIXTAPE { background: rgba(232,169,92,0.18); border-color: rgba(232,169,92,0.5); }
 
-/* ── Phase detail cards ────────────────────────────────────────────────── */
-.phase-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; margin-bottom: 10px; }
-.phase-card .head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
-.phase-card .head .id { font-family: "JetBrains Mono", monospace; font-size: 11px; padding: 3px 8px; border-radius: 5px; background: var(--surface-2); color: var(--text-2); }
-.phase-card .head .title { font-weight: 600; font-size: 15px; }
-.phase-card .head .meta { color: var(--text-3); font-size: 11px; margin-left: auto; font-family: "JetBrains Mono", monospace; }
-.phase-card .lane-detail { padding: 8px 0; border-top: 1px dashed var(--border); }
-.phase-card .lane-detail:first-child { border-top: none; }
-.phase-card .lane-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-.phase-card .lane-head .l-id { font-family: "JetBrains Mono", monospace; font-size: 10px; padding: 2px 6px; border-radius: 4px; background: var(--surface-2); color: var(--text-2); }
-.phase-card .lane-head .l-name { font-size: 13px; color: var(--text); font-weight: 500; }
-.phase-card .lane-head .l-owner { color: var(--text-3); font-size: 10px; font-family: "JetBrains Mono", monospace; margin-left: auto; }
-.phase-card .task { display: grid; grid-template-columns: 80px 1fr; gap: 14px; padding: 6px 0; font-size: 12px; align-items: start; }
-.phase-card .task .t { font-family: "JetBrains Mono", monospace; font-size: 10px; color: var(--text-3); padding-top: 1px; }
-.phase-card .task .body { color: var(--text); line-height: 1.5; }
-.phase-card .task code { background: var(--surface-2); padding: 1px 5px; border-radius: 3px; font-size: 11px; color: var(--text-2); }
+/* Checkpoint columns (full-height vertical gates) */
+.gantt-overlay { position: absolute; top: 28px; left: 220px; right: 0; bottom: 0; pointer-events: none; z-index: 4; }
+.cp-line {
+  position: absolute; top: 0; bottom: 0;
+  width: 1.5px; background: var(--crit);
+  opacity: 0.55;
+}
+.cp-line::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 0;
+  width: 14px; background: linear-gradient(to right, rgba(242,107,92,0.12), transparent);
+}
+.cp-flag {
+  position: absolute; top: -22px;
+  font-family: "JetBrains Mono", monospace; font-size: 11px; font-weight: 700;
+  background: var(--bg); border: 1.5px solid var(--crit); color: var(--crit);
+  border-radius: 5px; padding: 3px 8px;
+  white-space: nowrap; transform: translateX(-50%);
+  box-shadow: 0 0 18px rgba(242,107,92,0.4);
+  pointer-events: auto; cursor: default;
+}
+
+/* Checkpoint detail cards */
+.cp-card {
+  background: linear-gradient(135deg, rgba(242,107,92,0.06), rgba(242,107,92,0.02));
+  border: 1px solid rgba(242,107,92,0.3); border-radius: 12px;
+  padding: 14px 18px; margin-bottom: 8px;
+}
+.cp-card .head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid rgba(242,107,92,0.15); }
+.cp-card .id { font-family: "JetBrains Mono", monospace; font-size: 11px; padding: 3px 8px; border-radius: 5px; background: rgba(242,107,92,0.2); color: var(--crit); }
+.cp-card .title { font-weight: 600; font-size: 14px; color: var(--text); }
+.cp-card .gates { color: var(--text-3); font-size: 11px; margin-left: auto; font-family: "JetBrains Mono", monospace; }
+.cp-card .sub { color: var(--text-2); font-size: 12px; line-height: 1.5; margin-bottom: 8px; }
+.cp-card ul { margin: 6px 0 0; padding-left: 18px; color: var(--text-2); font-size: 12px; line-height: 1.6; }
+
+/* Phase summary */
+.phase-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; margin-bottom: 8px; }
+.phase-card .head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.phase-card .id { font-family: "JetBrains Mono", monospace; font-size: 11px; padding: 3px 8px; border-radius: 5px; background: var(--surface-2); color: var(--text-2); }
+.phase-card .title { font-weight: 600; font-size: 14px; color: var(--text); }
+.phase-card .meta { color: var(--text-3); font-size: 11px; margin-left: auto; font-family: "JetBrains Mono", monospace; }
+.phase-card .body { color: var(--text-2); font-size: 12px; line-height: 1.55; margin-top: 6px; }
+.phase-card .lanes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.phase-card .lane-chip { font-size: 11px; padding: 3px 8px; border-radius: 5px; background: var(--surface-2); color: var(--text-2); display: inline-flex; gap: 4px; }
+.phase-card .lane-chip .role-MAIN { color: var(--blue); }
+.phase-card .lane-chip .role-VOICE { color: var(--teal); }
+.phase-card .lane-chip .role-STATE { color: var(--green); }
+.phase-card .lane-chip .role-UI { color: var(--coral); }
+.phase-card .lane-chip .role-CANVAS { color: var(--plum); }
+.phase-card .lane-chip .role-MIXTAPE { color: var(--amber); }
 
 .box { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 20px; margin-bottom: 8px; }
 .box ul { margin: 8px 0 0; padding-left: 18px; color: var(--text-2); font-size: 13px; line-height: 1.7; }
@@ -166,7 +182,7 @@ footer { margin-top: 32px; text-align: center; color: var(--text-3); font-size: 
 <header>
   <div>
     <h1>Director — Build Plan</h1>
-    <div class="sub">Post-hackathon roadmap · 6 phases · parallel lanes per phase</div>
+    <div class="sub">Post-hackathon · 6 workers in parallel · 4 review gates · 12-hour budget</div>
   </div>
   <div class="spacer"></div>
   <div class="nav">
@@ -180,320 +196,252 @@ footer { margin-top: 32px; text-align: center; color: var(--text-3); font-size: 
 <div class="banner">
   <span class="pill">STATUS</span>
   <div class="text">
-    <strong>Hackathon closed; no submission made.</strong> All subsystems exist but the renderer↔main bridge fails. Phase 1 unblocks; Phases 2–6 follow with parallel lanes. <strong>Every worker reads <code>docs/contracts.md</code> before each task.</strong>
+    <strong>Hackathon closed; no submission made.</strong> Phase 0 done; integration boundary failed. <strong>P1 unblocks.</strong> Every worker reads <code>docs/contracts.md</code> before each task. Review gates (red flags) are where the orchestrator + user verify lane work before next batch fires.
   </div>
 </div>
 
-<h2>Gantt <span class="note">Each phase is a section with multiple parallel lanes (a worker per lane) · hover bars for detail</span></h2>
+<div class="legend">
+  <div class="item"><span class="swatch role-MAIN"></span> MAIN</div>
+  <div class="item"><span class="swatch role-VOICE"></span> VOICE</div>
+  <div class="item"><span class="swatch role-STATE"></span> STATE</div>
+  <div class="item"><span class="swatch role-UI"></span> UI</div>
+  <div class="item"><span class="swatch role-CANVAS"></span> CANVAS</div>
+  <div class="item"><span class="swatch role-MIXTAPE"></span> MIXTAPE</div>
+  <div class="item"><span class="swatch crit-border"></span> critical path</div>
+  <div class="item"><span class="swatch done-tint"></span> already done</div>
+</div>
+
+<h2>Gantt <span class="note">Worker rows × time columns × review gates · bars labeled with phase</span></h2>
 <div class="gantt">
-  <div class="gantt-grid-header">
-    <div class="gantt-label-cell">Phase / Lane</div>
-    <div class="gantt-timeline" id="ticks"></div>
+  <div class="gantt-grid">
+    <div class="gantt-header">
+      <div class="header-label">Worker</div>
+      <div class="header-ticks" id="ticks"></div>
+    </div>
+    <div class="gantt-overlay" id="overlay"></div>
+    <div id="workersBody"></div>
   </div>
-  <div id="ganttBody"></div>
 </div>
 
-<h2>Phase detail</h2>
-<div id="phaseDetail"></div>
+<h2>Review gates <span class="note">orchestrator + user verify before next batch fires</span></h2>
+<div id="checkpointsDetail"></div>
+
+<h2>Phase summary <span class="note">what each phase achieves</span></h2>
+<div id="phaseSummary"></div>
 
 <h2>Parallelism rules <span class="note">from the hackathon retrospective</span></h2>
 <div class="box">
   <ul>
-    <li><strong>Max 3 concurrent workers</strong> on this scope. Each owns a non-overlapping file set per <code>docs/contracts.md</code> § 8.</li>
-    <li><strong>Contracts first, code second.</strong> If a worker is about to write a shape that isn't in <code>contracts.md</code>, they STOP and add it as a doc commit first.</li>
-    <li><strong>Verification through the integration boundary</strong> is non-negotiable per <code>contracts.md</code> § 10. Workers run the app and click the thing.</li>
+    <li><strong>Max 3 concurrent workers</strong> at any time. Each owns a non-overlapping file set per <code>docs/contracts.md</code> § 8.</li>
+    <li><strong>Contracts first, code second.</strong> If a shape isn't in contracts.md yet, propose a doc commit before writing code.</li>
+    <li><strong>Verification through the integration boundary</strong> is non-negotiable per <code>contracts.md</code> § 10.</li>
+    <li><strong>Review gates pause execution.</strong> Workers do not dispatch into the next phase until the orchestrator confirms the prior gate passed.</li>
     <li><strong>No rebase, no co-signing.</strong> git add → commit → push.</li>
   </ul>
 </div>
 
-<h2>Strip restoration decision <span class="note">Phase 2 — the chat pivot was wrong</span></h2>
-<div class="box">
-  <ul>
-    <li><strong>The chat window was a panic move.</strong> The strip IS the product.</li>
-    <li>Phase 2 restores the right-edge overlay strip with transparent vibrancy.</li>
-    <li>Chat stays as a tray-menu debug option — hidden by default, second BrowserWindow when summoned.</li>
-  </ul>
-</div>
-
 <footer>
-  Director · roadmap as of 2026-05-27 · regenerate after each phase ships
+  Director · roadmap as of 2026-05-27 · update workers as lanes complete
 </footer>
 
 <script>
 const UNITS = 12; // 12-hour budget
-const phases = [
+
+// Workers (rows). Each task has phase, name, t0, t1, status, body, optional crit.
+const workers = [
   {
-    id: "P0", classKey: "p0", title: "Hackathon (closed)", sub: "What landed in the 5-hour window",
-    duration: "0–5h · done",
-    t0: 0, t1: 5,
-    lanes: [
-      {
-        id: "P0.A", name: "Design + research", owner: "docs", role: "docs",
-        tasks: [
-          { id: "p0.a1", name: "7-pass UX + Pencil mockups + research docs", t0: 0, t1: 2, status: "done", body: "Vision · UX (7 passes) · architecture · demo timeline · 13 Pencil mockups · 7 research docs." },
-        ]
-      },
-      {
-        id: "P0.B", name: "Engineering scaffolding", owner: "MAIN+UI+MIXTAPE", role: "STATE",
-        tasks: [
-          { id: "p0.b1", name: "Monorepo · Electron · Mixtape Next.js", t0: 1.5, t1: 3, status: "done", body: "pnpm workspaces · electron-vite + React 19 · Tailwind v4 · Mixtape on :3001" },
-          { id: "p0.b2", name: "Five subsystems built in parallel", t0: 2.5, t1: 4.8, status: "done", body: "Realtime · Strip UI · State + sim · Canvas + GenUI · Mixtape app" },
-        ]
-      },
-      {
-        id: "P0.C", name: "Integration boundary", owner: "—", role: "MAIN",
-        tasks: [
-          { id: "p0.c1", name: "Preload bridge — BLOCKED", t0: 4.8, t1: 5, status: "blocked", body: "window.director not surfacing in renderer · subsystems work in isolation · Phase 1 fixes" },
-        ]
-      },
+    role: "MAIN", name: "Main process", domain: "Electron main · bridge · tool router · windows · Codex spawner",
+    tasks: [
+      { id: "p1.a", phase: "P1", name: "Bridge diagnose + fix", t0: 0, t1: 1, status: "next", crit: true, body: "Verify preload load, fix sandbox/.cjs, confirm window.director in devtools." },
+      { id: "p2.a", phase: "P2", name: "Restore overlay window flags", t0: 2.5, t1: 3, status: "pending", body: "transparent · vibrancy · frame:false · closable:false · type:'panel'" },
+      { id: "p2.b", phase: "P2", name: "Chat-debug 2nd BrowserWindow", t0: 3, t1: 4, status: "pending", body: "Tray menu → second normal window for debug. Same store." },
+      { id: "p3.a", phase: "P3", name: "Planner service (Responses API + gpt-5)", t0: 4.5, t1: 6.5, status: "pending", body: "Main-process planner. reasoning.effort: high. Stateless with side-store re-injection." },
+      { id: "p4.a", phase: "P4", name: "Codex SDK + 4-process pool", t0: 4.5, t1: 6, status: "pending", body: "Install @openai/codex-sdk · spawn manager · JSONL parser." },
+      { id: "p4.b", phase: "P4", name: "Worktree + AGENTS.md per agent", t0: 6, t1: 7.5, status: "pending", body: "git worktree per Codex spawn · AGENTS.md as system prompt." },
     ]
   },
   {
-    id: "P1", classKey: "p1", title: "Integration recovery", sub: "Fix the bridge, smoke-test end-to-end, lock the contracts",
-    duration: "1.5h (parallel)",
-    t0: 5, t1: 6.5,
-    lanes: [
-      {
-        id: "P1.A", name: "Bridge fix (sequential)", owner: "MAIN", role: "MAIN",
-        tasks: [
-          { id: "p1.a1", name: "Diagnose · log [preload] loaded · check sandbox flag", t0: 5, t1: 5.25, status: "next", crit: true, body: "Add console.log at top of preload/index.ts. Check sandbox + preload extension." },
-          { id: "p1.a2", name: "Apply fix (sandbox:false or .cjs convert)", t0: 5.25, t1: 5.5, status: "next", crit: true, body: "Most likely: sandbox:false in webPreferences." },
-          { id: "p1.a3", name: "Voice round-trip smoke test", t0: 5.5, t1: 6, status: "next", crit: true, body: "Mic → say hello → audio response." },
-        ]
-      },
-      {
-        id: "P1.B", name: "Tool routing smoke test (parallel)", owner: "STATE", role: "STATE",
-        tasks: [
-          { id: "p1.b1", name: "Tool button → tool.call → tool-router → renderer", t0: 5.5, t1: 6.5, status: "next", body: "Show Moodboard / Show Artifact buttons fire Canvas. Trigger T/H dev keys verify path." },
-        ]
-      },
-      {
-        id: "P1.C", name: "Sim → Realtime escalation (parallel)", owner: "VOICE", role: "VOICE",
-        tasks: [
-          { id: "p1.c1", name: "director:escalation event → speaks unprompted", t0: 5.75, t1: 6.5, status: "next", body: "Jin blocks at T+50 → Director speaks the question via Realtime injection." },
-        ]
-      },
+    role: "VOICE", name: "Realtime voice", domain: "WebRTC client · session · tool delivery · escalation injection",
+    tasks: [
+      { id: "p1.c", phase: "P1", name: "Escalation → Realtime injection", t0: 0.75, t1: 1.5, status: "next", crit: true, body: "director:escalation event → conversation.item.create + response.create. Needs bridge fix first." },
+      { id: "p3.b", phase: "P3", name: "consult_director tool + bridge", t0: 4.5, t1: 6.5, status: "pending", body: "Tool def in session.update · routes to planner · reasoning summary → audio narration." },
+      { id: "p6.a", phase: "P6", name: "55-min session rotation", t0: 8, t1: 9, status: "pending", body: "Mint Session_B · World State Brief inject · swap < 200ms." },
+      { id: "p6.b", phase: "P6", name: "Disconnect / reconnect UX", t0: 9, t1: 9.5, status: "pending", body: "Grey Strip · macOS notif · queue last utterance for replay." },
     ]
   },
   {
-    id: "P2", classKey: "p2", title: "Restore the Strip", sub: "Revert chat pivot · keep chat as tray-menu debug",
-    duration: "1.5h (parallel)",
-    t0: 6.5, t1: 8,
-    lanes: [
-      {
-        id: "P2.A", name: "Window + render restoration", owner: "MAIN+UI", role: "UI",
-        tasks: [
-          { id: "p2.a1", name: "BrowserWindow: transparent · vibrancy · frameless · panel · closable:false", t0: 6.5, t1: 6.75, status: "pending", body: "Restore overlay flags. Anchor right edge." },
-          { id: "p2.a2", name: "App.tsx → switch over stripState", t0: 6.75, t1: 7.25, status: "pending", body: "Conditional render Dormant/Listening/Speaking/Thinking/Hive." },
-          { id: "p2.a3", name: "Auto-resize per state", t0: 7.25, t1: 7.5, status: "pending", body: "strip.resize IPC drives setBounds. 12×180 → 38×180 → 280×420." },
-        ]
-      },
-      {
-        id: "P2.B", name: "Chat as tray-debug surface (parallel)", owner: "MAIN+UI", role: "MAIN",
-        tasks: [
-          { id: "p2.b1", name: "Second BrowserWindow for chat", t0: 6.5, t1: 7, status: "pending", body: "Normal 480×720 window. Frame:true. Tray menu entry to show/hide." },
-          { id: "p2.b2", name: "Wire chat to same Zustand store", t0: 7, t1: 7.25, status: "pending", body: "Chat reads same store, sees same agents/transcript." },
-        ]
-      },
-      {
-        id: "P2.C", name: "Visual QA (parallel)", owner: "UI", role: "UI",
-        tasks: [
-          { id: "p2.c1", name: "Screenshot vs Pencil for all 6 strip states", t0: 7.5, t1: 8, status: "pending", body: "Compare against EodJh / WTc1y / TiVyu / v2ONzK / yl2Zx / BzAdB." },
-        ]
-      },
+    role: "STATE", name: "State + IPC + Sim", domain: "Zustand · IPC contracts · agent simulator · audio cues",
+    tasks: [
+      { id: "p1.b", phase: "P1", name: "Tool routing smoke test", t0: 0.5, t1: 2, status: "next", crit: true, body: "Show Moodboard / Show Artifact buttons → tool.call → tool-router → Canvas. Verify path end-to-end." },
+      { id: "p3.c", phase: "P3", name: "Side store (harness · decisions · transcript)", t0: 4.5, t1: 6, status: "pending", body: "Atomic writes (tmp + rename) · debounced agent snapshots." },
+      { id: "p4.c", phase: "P4", name: "Codex events → store actions", t0: 6, t1: 7.5, status: "pending", body: "file_change · turn.completed · error → addAgent/updateAgent/blockAgent/completeAgent." },
+      { id: "p5.b", phase: "P5", name: "Audio cue synthesis", t0: 8, t1: 8.5, status: "pending", body: "Web Audio: confirm · tick · escalation · done · halo." },
     ]
   },
   {
-    id: "P3", classKey: "p3", title: "gpt-5.5 planner tier", sub: "Add the deep reasoning hop behind Realtime",
-    duration: "2h (parallel) · runs alongside P4",
-    t0: 8, t1: 10,
-    lanes: [
-      {
-        id: "P3.A", name: "Planner service (Responses API)", owner: "MAIN", role: "MAIN",
-        tasks: [
-          { id: "p3.a1", name: "Responses API client · gpt-5 · reasoning.effort:high", t0: 8, t1: 8.75, status: "pending", body: "Main-process service. Stateless with side-store re-injection per turn." },
-          { id: "p3.a2", name: "Reasoning summary parser", t0: 8.75, t1: 9.25, status: "pending", body: "Stream reasoning.summary tokens." },
-        ]
-      },
-      {
-        id: "P3.B", name: "consult_director tool + Realtime bridge (parallel)", owner: "VOICE", role: "VOICE",
-        tasks: [
-          { id: "p3.b1", name: "Tool def in session.update", t0: 8, t1: 8.25, status: "pending", body: "Per contracts.md § 4.5." },
-          { id: "p3.b2", name: "Tool call → planner service", t0: 8.25, t1: 9, status: "pending", body: "tool-router handles consult_director." },
-          { id: "p3.b3", name: "Reasoning → Realtime audio narration", t0: 9, t1: 10, status: "pending", body: "Inject summary as system message + response.create." },
-        ]
-      },
-      {
-        id: "P3.C", name: "Side store (parallel)", owner: "STATE", role: "STATE",
-        tasks: [
-          { id: "p3.c1", name: "harness.json · decisions.jsonl · agents/<id>.json", t0: 8, t1: 9, status: "pending", body: "Atomic writes (tmp + rename)." },
-          { id: "p3.c2", name: "transcript.jsonl · world-state.json", t0: 9, t1: 9.5, status: "pending", body: "Per contracts.md § 6." },
-        ]
-      },
+    role: "UI", name: "Strip + Chat UI", domain: "Strip states · AgentRow · captions · onboarding",
+    tasks: [
+      { id: "p2.a2", phase: "P2", name: "App.tsx revert to strip render", t0: 2.5, t1: 3.5, status: "pending", crit: true, body: "Conditional render dormant/listening/speaking/thinking/hive. Keep state wiring from W2." },
+      { id: "p2.a3", phase: "P2", name: "Auto-resize per state", t0: 3.5, t1: 4, status: "pending", body: "strip.resize IPC drives setBounds. 12→38→280." },
+      { id: "p2.c", phase: "P2", name: "Visual QA vs Pencil", t0: 4, t1: 4.5, status: "pending", body: "Screenshot every state, compare to Pencil frames." },
+      { id: "p5.a", phase: "P5", name: "Captions track", t0: 8, t1: 8.75, status: "pending", body: "Fading subtitle text below dormant strip mirroring Realtime narration." },
+      { id: "p5.c", phase: "P5", name: "Polish (canvas-handle · hover-peek · onboarding)", t0: 8.75, t1: 10, status: "pending", body: "Strip-as-Canvas-handle · hover-to-peek · 3A-1 minimal-seed welcome." },
     ]
   },
   {
-    id: "P4", classKey: "p4", title: "Real Codex sub-agents", sub: "Replace simulator with @openai/codex-sdk",
-    duration: "3h (parallel) · runs alongside P3",
-    t0: 8, t1: 11,
-    lanes: [
-      {
-        id: "P4.A", name: "Codex SDK + spawn manager", owner: "MAIN", role: "MAIN",
-        tasks: [
-          { id: "p4.a1", name: "Install @openai/codex-sdk · read source", t0: 8, t1: 8.25, status: "pending", body: "Inspect event taxonomy in node_modules." },
-          { id: "p4.a2", name: "4-process semaphore pool", t0: 8.25, t1: 9, status: "pending", body: "Child processes per agent. Concurrency=4." },
-          { id: "p4.a3", name: "JSONL stdout parser", t0: 9, t1: 9.5, status: "pending", body: "Map events to Codex event taxonomy." },
-        ]
-      },
-      {
-        id: "P4.B", name: "AGENTS.md + worktree manager (parallel)", owner: "MAIN", role: "MAIN",
-        tasks: [
-          { id: "p4.b1", name: "Worktree creation per agent", t0: 8, t1: 8.5, status: "pending", body: "git worktree add for each Codex spawn." },
-          { id: "p4.b2", name: "AGENTS.md template per identity", t0: 8.5, t1: 9, status: "pending", body: "Maya / Jin / Cleo / Wren — system prompt + specialization." },
-          { id: "p4.b3", name: "Cleanup + merge protocol", t0: 9, t1: 10, status: "pending", body: "Fan-in worktrees when agents done." },
-        ]
-      },
-      {
-        id: "P4.C", name: "Codex events → state machine (parallel)", owner: "STATE", role: "STATE",
-        tasks: [
-          { id: "p4.c1", name: "Map file_change · error · turn.completed → store", t0: 9, t1: 10, status: "pending", body: "Codex events drive addAgent/updateAgent/blockAgent/completeAgent." },
-          { id: "p4.c2", name: "Dogfood: actually build Mixtape TODOs", t0: 10, t1: 11, status: "pending", body: "Director's agents complete the unfinished Mixtape files." },
-        ]
-      },
+    role: "CANVAS", name: "Canvas + GenUI", domain: "Canvas window · React components · iframe punchline",
+    tasks: [
+      { id: "p2.c2", phase: "P2", name: "Canvas visual QA", t0: 4, t1: 4.5, status: "pending", body: "Verify Canvas slides correctly with new strip positioning." },
+      { id: "p4.d", phase: "P4", name: "Dogfood: real Codex builds Mixtape TODOs", t0: 7, t1: 8, status: "pending", body: "Verify iframe punchline shows live Mixtape with completed flippable card." },
     ]
   },
   {
-    id: "P5", classKey: "p5", title: "Polish", sub: "Captions · audio cues · onboarding",
-    duration: "1.5h (parallel)",
-    t0: 11, t1: 12,
-    lanes: [
-      {
-        id: "P5.A", name: "Captions track", owner: "UI", role: "UI",
-        tasks: [
-          { id: "p5.a1", name: "Caption strip below dormant Strip", t0: 11, t1: 11.5, status: "pending", body: "Mirror Realtime narration as fading text. Pass 6 phase-2 item." },
-        ]
-      },
-      {
-        id: "P5.B", name: "Audio cues (parallel)", owner: "UI+STATE", role: "STATE",
-        tasks: [
-          { id: "p5.b1", name: "Web Audio synthesis: confirm · tick · escalation · done · halo", t0: 11, t1: 11.5, status: "pending", body: "Per Pass 5 sound palette." },
-        ]
-      },
-      {
-        id: "P5.C", name: "Onboarding + Canvas-handle + hover-peek (parallel)", owner: "UI", role: "UI",
-        tasks: [
-          { id: "p5.c1", name: "Strip-as-Canvas-handle · hover-to-peek · 3A-1 welcome", t0: 11.5, t1: 12, status: "pending", body: "Three small polish items, fit in one lane." },
-        ]
-      },
-    ]
-  },
-  {
-    id: "P6", classKey: "p6", title: "Resilience", sub: "Session rotation · reconnect · resume",
-    duration: "1h (parallel)",
-    t0: 11, t1: 12,
-    lanes: [
-      {
-        id: "P6.A", name: "Session rotation (55-min)", owner: "VOICE", role: "VOICE",
-        tasks: [
-          { id: "p6.a1", name: "Mint Session_B · inject world-state · swap < 200ms", t0: 11, t1: 11.75, status: "pending", body: "Per Pass 2 / architecture §4." },
-        ]
-      },
-      {
-        id: "P6.B", name: "Reconnect / resume (parallel)", owner: "VOICE+UI", role: "VOICE",
-        tasks: [
-          { id: "p6.b1", name: "Disconnect grey Strip · queue last utterance", t0: 11.25, t1: 11.75, status: "pending", body: "Pass 2 state matrix." },
-          { id: "p6.b2", name: "Session resume on launch · 'Pick up Mixtape?'", t0: 11.75, t1: 12, status: "pending", body: "Pass 3 3C-1 soft prompt." },
-        ]
-      },
+    role: "MIXTAPE", name: "Mixtape demo target", domain: "Reference app at :3001 · iframe target",
+    tasks: [
+      { id: "p0.x", phase: "P0", name: "Cassette aesthetic + PlaylistCard flip", t0: 0, t1: 2, status: "done", body: "Already shipped. localhost:3001/?vibe=… works with the gorgeous cassette card and flip." },
     ]
   },
 ];
 
+// Phases (for the summary card list)
+const phases = [
+  { id: "P0", title: "Hackathon (closed)", meta: "0–5h · done", body: "All subsystems built. Bridge integration failed at deadline.", lanes: [{ role: "docs", name: "design+research" }, { role: "MAIN", name: "scaffold" }, { role: "STATE", name: "Realtime/Strip/State/Canvas/Mix" }] },
+  { id: "P1", title: "Integration recovery", meta: "0–2h · 3 lanes parallel", body: "Fix the bridge so window.director surfaces. Smoke-test voice round-trip + tool routing + escalation injection together.", lanes: [{ role: "MAIN", name: "bridge fix" }, { role: "STATE", name: "tool routing smoke" }, { role: "VOICE", name: "escalation inject" }] },
+  { id: "P2", title: "Restore the Strip", meta: "2.5–4.5h · 3 lanes", body: "Revert chat-pivot. Strip is the product. Chat stays as tray-menu debug surface. Visual QA against Pencil before R2.", lanes: [{ role: "MAIN", name: "window + chat-debug" }, { role: "UI", name: "App.tsx revert + resize" }, { role: "CANVAS", name: "visual QA" }, { role: "UI", name: "visual QA" }] },
+  { id: "P3", title: "gpt-5.5 planner tier", meta: "4.5–7h · parallels P4", body: "Add the deep reasoning hop. consult_director tool, Responses API client, reasoning summary → audio narration, side store.", lanes: [{ role: "MAIN", name: "planner service" }, { role: "VOICE", name: "tool bridge" }, { role: "STATE", name: "side store" }] },
+  { id: "P4", title: "Real Codex sub-agents", meta: "4.5–7.5h · parallels P3", body: "Replace simulator with @openai/codex-sdk. Spawn pool, AGENTS.md per worktree, JSONL events drive Hive.", lanes: [{ role: "MAIN", name: "SDK + spawn pool" }, { role: "MAIN", name: "worktree + identity" }, { role: "STATE", name: "events → store" }, { role: "CANVAS", name: "dogfood Mixtape" }] },
+  { id: "P5", title: "Polish", meta: "8–10h · 3 lanes", body: "Captions, audio cues, onboarding seed, Canvas-handle, hover-peek.", lanes: [{ role: "UI", name: "captions" }, { role: "STATE", name: "audio cues" }, { role: "UI", name: "polish" }] },
+  { id: "P6", title: "Resilience", meta: "8–9.5h · runs alongside P5", body: "Session rotation, reconnect UX, resume on launch.", lanes: [{ role: "VOICE", name: "rotation" }, { role: "VOICE", name: "reconnect" }] },
+];
+
+// Checkpoint gates (vertical columns between batches)
+const checkpoints = [
+  { id: "R1", at: 2, gates: "P1 → P2",
+    title: "Integration sound?",
+    sub: "Verify bridge, tool routing, and escalation work together — all 3 P1 lanes' commits cross-tested before P2 fires.",
+    criteria: [
+      "window.director exists in devtools after launch",
+      "Mic permission + voice round-trip (say hello → AI replies with audio)",
+      "Show Moodboard button opens Canvas — tool routing fires through IPC",
+      "Sim escalation triggers Director's unprompted speech via Realtime injection",
+      "No regressions in dormant Strip render",
+    ]
+  },
+  { id: "R2", at: 4.5, gates: "P2 → P3 + P4",
+    title: "Strip back? Chat debug working?",
+    sub: "Verify strip is restored, all states render correctly against Pencil, chat is in tray as a debug surface only. Screenshot diff each state.",
+    criteria: [
+      "All 6 strip states animate correctly (dormant/listening/speaking/thinking/hive/escalating)",
+      "Auto-resize per state works (12→38→280)",
+      "Tray menu opens chat as secondary window",
+      "Visual parity with Pencil mockups (EodJh/WTc1y/TiVyu/v2ONzK/yl2Zx/BzAdB)",
+      "Canvas opens against the strip in correct position",
+    ]
+  },
+  { id: "R3", at: 7.5, gates: "P3 + P4 → P5",
+    title: "3-tier alive? Real Codex working?",
+    sub: "Verify consult_director hits gpt-5.5 and narrates reasoning. Real Codex subprocesses populate Hive with actual file events. Side store on disk.",
+    criteria: [
+      "consult_director tool call → audio narration of planner reasoning",
+      "4 real Codex subprocesses spawn with AGENTS.md identities",
+      "Codex file_change/turn.completed events update Hive in real time",
+      "harness.json + decisions.jsonl + agents/<id>.json exist after a session",
+      "Director actually completes a Mixtape TODO (e.g., the share page)",
+    ]
+  },
+  { id: "R4", at: 10, gates: "P5 + P6 → ship",
+    title: "Polished + resilient?",
+    sub: "Final integration. Captions + audio cues + session rotation + reconnect UX all working. Full demo dry-run.",
+    criteria: [
+      "55-min rotation handled invisibly (mint Session_B, swap < 200ms)",
+      "Audio cues fire on every state transition (confirm/tick/escalation/done/halo)",
+      "Captions track Realtime narration as fading text",
+      "Disconnect handled gracefully (grey Strip + queued utterance)",
+      "Full 5-min Mixtape demo runs end-to-end without intervention",
+    ]
+  },
+];
+
+// ── Render ticks ──────────────────────────────────────────────────────────
 const ticksEl = document.getElementById("ticks");
 ticksEl.style.gridTemplateColumns = `repeat(${UNITS}, 1fr)`;
 for (let i = 0; i < UNITS; i++) {
   const tick = document.createElement("div");
-  tick.className = "gantt-tick";
+  tick.className = "tick";
   tick.textContent = `${i}h`;
   ticksEl.appendChild(tick);
 }
 
-const ganttBody = document.getElementById("ganttBody");
-for (const phase of phases) {
-  const section = document.createElement("div");
-  section.className = `phase-section phase-${phase.classKey}`;
-
-  const phaseLeft = (phase.t0 / UNITS) * 100;
-  const phaseWidth = ((phase.t1 - phase.t0) / UNITS) * 100;
-
-  const header = document.createElement("div");
-  header.className = "phase-header";
-  header.innerHTML = `
-    <div class="phase-label">
-      <span class="badge">${phase.id}</span>
-      <span class="title">${phase.title}</span>
-      <span class="sub">${phase.sub}</span>
+// ── Render workers ────────────────────────────────────────────────────────
+const body = document.getElementById("workersBody");
+for (const w of workers) {
+  const row = document.createElement("div");
+  row.className = "worker-row";
+  row.innerHTML = `
+    <div class="worker-label">
+      <div class="role role-${w.role}">${w.role}</div>
+      <div class="name">${w.name}</div>
+      <div class="domain">${w.domain}</div>
     </div>
-    <div class="phase-header-right" style="position:relative; display:grid; grid-template-columns:1fr; align-items:center;">
-      <div class="timespan">
-        <div class="ghost" style="left:${phaseLeft}%; width:${phaseWidth}%"></div>
-      </div>
-      <div style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-3);">${phase.duration}</div>
-    </div>
+    <div class="worker-bars">${w.tasks.map(t => {
+      const left = (t.t0 / UNITS) * 100;
+      const width = ((t.t1 - t.t0) / UNITS) * 100;
+      const cls = ["bar", t.status, `role-${w.role}`, t.crit ? "crit" : ""].filter(Boolean).join(" ");
+      const stripped = (t.body || "").replace(/<[^>]+>/g, "");
+      return `<div class="${cls}" style="left:${left}%; width:calc(${width}% - 2px);" title="${t.phase} ${t.id}: ${stripped}"><span class="phase-tag">${t.phase}</span>${t.name}</div>`;
+    }).join("")}</div>
   `;
-  section.appendChild(header);
-
-  for (const lane of phase.lanes) {
-    const row = document.createElement("div");
-    row.className = `lane-row lane-${lane.role}`;
-    row.innerHTML = `
-      <div class="lane-label">
-        <div class="lane-id">${lane.id}</div>
-        <div class="lane-name">${lane.name}</div>
-        <div class="lane-owner">${lane.owner}</div>
-      </div>
-      <div class="lane-bars">${lane.tasks.map(task => {
-        const left = (task.t0 / UNITS) * 100;
-        const width = ((task.t1 - task.t0) / UNITS) * 100;
-        const cls = ['bar', task.status, `role-${lane.role}`, task.crit ? 'crit' : ''].filter(Boolean).join(' ');
-        const stripped = (task.body || '').replace(/<[^>]+>/g, '');
-        return `<div class="${cls}" style="left:${left}%; width:calc(${width}% - 2px);" title="${task.id}: ${stripped}">${task.name}</div>`;
-      }).join("")}</div>
-    `;
-    section.appendChild(row);
-  }
-
-  ganttBody.appendChild(section);
+  body.appendChild(row);
 }
 
-// Phase detail cards
-const phaseDetailEl = document.getElementById("phaseDetail");
-for (const phase of phases) {
+// ── Render checkpoint vertical lines + flags ──────────────────────────────
+const overlay = document.getElementById("overlay");
+for (const cp of checkpoints) {
+  const left = (cp.at / UNITS) * 100;
+  const line = document.createElement("div");
+  line.className = "cp-line";
+  line.style.left = left + "%";
+  overlay.appendChild(line);
+  const flag = document.createElement("div");
+  flag.className = "cp-flag";
+  flag.style.left = left + "%";
+  flag.textContent = `${cp.id} · ${cp.gates}`;
+  flag.title = cp.title + " — " + cp.sub;
+  overlay.appendChild(flag);
+}
+
+// ── Checkpoint detail cards ───────────────────────────────────────────────
+const cpEl = document.getElementById("checkpointsDetail");
+for (const cp of checkpoints) {
+  const card = document.createElement("div");
+  card.className = "cp-card";
+  card.innerHTML = `
+    <div class="head">
+      <span class="id">${cp.id}</span>
+      <span class="title">${cp.title}</span>
+      <span class="gates">@ ${cp.at}h · gates ${cp.gates}</span>
+    </div>
+    <div class="sub">${cp.sub}</div>
+    <ul>${cp.criteria.map(c => `<li>${c}</li>`).join("")}</ul>
+  `;
+  cpEl.appendChild(card);
+}
+
+// ── Phase summary cards ───────────────────────────────────────────────────
+const phaseEl = document.getElementById("phaseSummary");
+for (const p of phases) {
   const card = document.createElement("div");
   card.className = "phase-card";
   card.innerHTML = `
     <div class="head">
-      <span class="id">${phase.id}</span>
-      <span class="title">${phase.title}</span>
-      <span class="meta">${phase.duration}</span>
+      <span class="id">${p.id}</span>
+      <span class="title">${p.title}</span>
+      <span class="meta">${p.meta}</span>
     </div>
-    ${phase.lanes.map(lane => `
-      <div class="lane-detail">
-        <div class="lane-head">
-          <span class="l-id">${lane.id}</span>
-          <span class="l-name">${lane.name}</span>
-          <span class="l-owner">${lane.owner}</span>
-        </div>
-        ${lane.tasks.map(t => `
-          <div class="task">
-            <div class="t">${t.id}</div>
-            <div class="body"><strong>${t.name}</strong> — ${t.body}</div>
-          </div>
-        `).join('')}
-      </div>
-    `).join('')}
+    <div class="body">${p.body}</div>
+    <div class="lanes">${p.lanes.map(l => `<span class="lane-chip"><span class="role-${l.role}">${l.role}</span> ${l.name}</span>`).join("")}</div>
   `;
-  phaseDetailEl.appendChild(card);
+  phaseEl.appendChild(card);
 }
 </script>
 </body>
