@@ -268,16 +268,16 @@ const workers = [
       { id: "p1.a", phase: "P1", name: "Bridge diagnose + fix", t0: 0, t1: 1, status: "done", crit: true, body: "sandbox:false + CSP api.openai.com + transcription model. Commits 052ac4c, 4138d35, c8bc4dd, 4fa1340." },
       { id: "p2.a", phase: "P2", name: "Restore overlay window flags", t0: 2.5, t1: 3, status: "done", body: "Commit 8314a5a — transparent · vibrancy · frame:false · closable:false · type:'panel'" },
       { id: "p2.b", phase: "P2", name: "Chat-debug 2nd BrowserWindow", t0: 3, t1: 4, status: "done", body: "Commits 83456de (re-anchor) + 55af200 (tray menu chat-debug). Strip on right edge, chat debug via tray." },
-      { id: "p3.a", phase: "P3", name: "Planner service (Responses API + gpt-5)", t0: 5, t1: 6.5, status: "pending", body: "Main-process planner. reasoning.effort: high. Stateless with side-store re-injection." },
-      { id: "p4.a", phase: "P4", name: "Codex SDK + 4-process pool", t0: 5, t1: 6, status: "pending", body: "Install @openai/codex-sdk · spawn manager · JSONL parser. Sequential after planner — same worker." },
-      { id: "p4.b", phase: "P4", name: "Worktree + AGENTS.md per agent", t0: 6, t1: 7.5, status: "pending", body: "git worktree per Codex spawn · AGENTS.md as system prompt." },
+      { id: "p3.a", phase: "P3", name: "Planner service (Responses API + gpt-5)", t0: 5, t1: 6.5, status: "done", body: "Commits 0c6a273 + 2bb5d87 + bb65800 + 66ca9cf — gpt-5 planner with streaming reasoning, tool-router wire, dev IPC." },
+      { id: "p4.a", phase: "P4", name: "Codex SDK + 4-process pool", t0: 5, t1: 6, status: "next", body: "Deps shipped (93519a1). Spawn manager / JSONL parser in flight." },
+      { id: "p4.b", phase: "P4", name: "Worktree + AGENTS.md per agent", t0: 6, t1: 7.5, status: "next", body: "Worktree manager shipped (21b8872). AGENTS.md template lives inside codex-pool.ts." },
     ]
   },
   {
     role: "VOICE", name: "Worker 2", domain: "Realtime voice · WebRTC client · session · tool delivery · escalation",
     tasks: [
       { id: "p1.c", phase: "P1", name: "Escalation → Realtime injection", t0: 1, t1: 2, status: "done", crit: true, body: "Prereqs verified. Code from hackathon (commit 98d5169) intact. Awaiting physical smoke at R1." },
-      { id: "p3.b", phase: "P3", name: "consult_director tool + bridge", t0: 5, t1: 6.5, status: "pending", body: "Tool def in session.update · routes to planner · reasoning summary → audio narration." },
+      { id: "p3.b", phase: "P3", name: "consult_director tool + bridge", t0: 5, t1: 6.5, status: "done", body: "Commits b93133f + 4817b0c + 7736c23 — tool added to session.update, persona, narration hook stub." },
       { id: "p6.a", phase: "P6", name: "55-min session rotation", t0: 8, t1: 9, status: "pending", body: "Mint Session_B · World State Brief inject · swap < 200ms." },
       { id: "p6.b", phase: "P6", name: "Disconnect / reconnect UX", t0: 9, t1: 9.5, status: "pending", body: "Grey Strip · macOS notif · queue last utterance for replay." },
     ]
@@ -286,7 +286,7 @@ const workers = [
     role: "STATE", name: "Worker 3", domain: "State machine · IPC contracts · agent simulator · side store · audio cues",
     tasks: [
       { id: "p1.b", phase: "P1", name: "Tool routing smoke test", t0: 0.5, t1: 2, status: "done", crit: true, body: "Static-verified end-to-end. Every layer wired correctly. Bug was upstream (sandbox), fixed by W1." },
-      { id: "p3.c", phase: "P3", name: "Side store (harness · decisions · transcript)", t0: 5, t1: 6, status: "pending", body: "Atomic writes (tmp + rename) · debounced agent snapshots. NEW FILE — no overlap with W1." },
+      { id: "p3.c", phase: "P3", name: "Side store (harness · decisions · transcript)", t0: 5, t1: 6, status: "next", body: "In flight — atomic writes, debounced agent snapshots, readWorldState() for planner consumption." },
       { id: "p4.c", phase: "P4", name: "Codex events → store actions", t0: 6, t1: 7.5, status: "pending", body: "file_change · turn.completed · error → addAgent/updateAgent/blockAgent/completeAgent." },
       { id: "p5.b", phase: "P5", name: "Audio cue synthesis", t0: 8, t1: 8.5, status: "pending", body: "Web Audio: confirm · tick · escalation · done · halo. NEW DIR src/renderer/src/audio/*." },
     ]
