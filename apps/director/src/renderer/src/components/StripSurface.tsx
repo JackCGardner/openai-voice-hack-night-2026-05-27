@@ -16,6 +16,7 @@ import { ListeningStrip } from './ListeningStrip';
 import { SpeakingStrip } from './SpeakingStrip';
 import { ThinkingStrip } from './ThinkingStrip';
 import { HiveStrip } from './HiveStrip';
+import { Captions } from './Captions';
 import type { StripStateKind } from '../../../shared/state';
 
 export interface StripSurfaceProps {
@@ -30,7 +31,13 @@ export function StripSurface({
   remoteStream,
 }: StripSurfaceProps): JSX.Element {
   const kind = useStore((s) => s.strip.kind);
-  return renderStripFor(kind, micStream ?? null, remoteStream ?? null);
+  return (
+    <>
+      {renderStripFor(kind, micStream ?? null, remoteStream ?? null)}
+      {/* § captions (W4 — P5.1) — sibling of Strip, anchored 24px below. */}
+      <Captions />
+    </>
+  );
 }
 
 function renderStripFor(

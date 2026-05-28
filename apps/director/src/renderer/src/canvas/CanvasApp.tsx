@@ -9,7 +9,7 @@
  * Slide animation tokens: docs/ux-design.md Pass 5 (spring-default).
  */
 
-import { useEffect, useRef, useState, type JSX } from 'react';
+import { Component, useEffect, useRef, useState, type JSX, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
   CanvasIpcChannel,
@@ -26,6 +26,19 @@ import {
   type HarnessRuleSaveProps,
 } from './components/HarnessRuleSave';
 import { UnknownComponent } from './components/UnknownComponent';
+// ─── § form-route (W4 — P5.3 onboarding) ────────────────────────────────
+import { Form, type FormProps } from './components/Form';
+// ─── § canvas-degradation (W5 — P6.6) ───────────────────────────────────
+import { MicDenied, type MicDeniedProps } from './components/MicDenied';
+import {
+  ApiKeyMissing,
+  type ApiKeyMissingProps,
+} from './components/ApiKeyMissing';
+import {
+  RotationFailed,
+  type RotationFailedProps,
+} from './components/RotationFailed';
+import { CanvasError } from './components/CanvasError';
 
 type IpcRendererLike = {
   on: (channel: string, listener: (...args: unknown[]) => void) => void;
@@ -145,7 +158,12 @@ export function CanvasApp(): JSX.Element {
                 : { type: 'spring', stiffness: 180, damping: 22 }
             }
           >
-            <CanvasBody payload={current} onRespond={respond} />
+            <CanvasErrorBoundary
+              payload={current}
+              onRetry={() => setCurrent({ ...current })}
+            >
+              <CanvasBody payload={current} onRespond={respond} />
+            </CanvasErrorBoundary>
             <span className="canvas-mic-hint">or say it</span>
           </motion.div>
         ) : (
@@ -195,6 +213,51 @@ function CanvasBody({
           {...(payload.props as unknown as HarnessRuleSaveProps)}
         />
       );
+    // ─── § canvas-degradation (W5 — P6.6) ───────────────────────────────
+    case 'mic_denied':
+      return <MicDenied {...(payload.props as unknown as MicDeniedProps)} />;
+    case 'api_key_missing':
+      return (
+        <ApiKeyMissing
+          {...(payload.props as unknown as ApiKeyMissingProps)}
+          onSaved={() => onRespond({ saved: true })}
+        />
+      );
+    case 'rotation_failed':
+      return (
+        <RotationFailed
+          {...(payload.props as unknown as RotationFailedProps)}
+          onAutoDismiss={() => onRespond({ dismissed: true, reason: 'auto-fade' })}
+        />
+      );
+    // ─── § form-route (W4 — P5.3 onboarding) ───────────────────────────
+    case 'form':
+      return (
+        <Form
+          {...(payload.props as unknown as FormProps)}
+          onSubmit={(values) => onRespond({ values })}
+        />
+      );
+    case 'canvas_error':
+      // A `canvas_error` payload arriving from main is rare (the boundary
+      // catches local render throws), but support it so an upstream caller
+      // can deliberately surface a pre-rendered error card.
+      return (
+        <CanvasError
+          message={
+            typeof (payload.props as { message?: unknown }).message === 'string'
+              ? ((payload.props as { message: string }).message)
+              : undefined
+          }
+          componentName={
+            typeof (payload.props as { componentName?: unknown }).componentName ===
+            'string'
+              ? ((payload.props as { componentName: string }).componentName)
+              : undefined
+          }
+          onRetry={() => onRespond({ retry: true })}
+        />
+      );
     default:
       return (
         <UnknownComponent
@@ -202,5 +265,86 @@ function CanvasBody({
           props={payload.props}
         />
       );
+  }
+}
+
+// ─── § canvas-degradation (W5 — P6.6) ───────────────────────────────────
+// CanvasErrorBoundary — catches throws from any Canvas component render,
+// surfaces a `CanvasError` card, and exposes a retry button that nudges
+// the parent into re-mounting the same payload (parent passes a fresh
+// `onRetry` each render — equivalent to setCurrent({ ...current })).
+//
+// Class component because React's only public error-boundary API is
+// `componentDidCatch` / `getDerivedStateFromError`. No dependency on
+// react-error-boundary so the canvas window stays light.
+
+interface CanvasErrorBoundaryProps {
+  payload: CanvasRenderPayload;
+  onRetry?: () => void;
+  children: ReactNode;
+}
+
+interface CanvasErrorBoundaryState {
+  /** The error caught during the current payload render, or null. */
+  error: Error | null;
+  /** Component name that produced the current error, for the fallback card. */
+  triggeringComponent: string | null;
+}
+
+export class CanvasErrorBoundary extends Component<
+  CanvasErrorBoundaryProps,
+  CanvasErrorBoundaryState
+> {
+  override state: CanvasErrorBoundaryState = {
+    error: null,
+    triggeringComponent: null,
+  };
+
+  static getDerivedStateFromError(error: Error): Partial<CanvasErrorBoundaryState> {
+    return { error };
+  }
+
+  // When a fresh payload arrives (different component_id or component name)
+  // clear the error state — the new card deserves a clean attempt.
+  static getDerivedStateFromProps(
+    next: CanvasErrorBoundaryProps,
+    prev: CanvasErrorBoundaryState,
+  ): Partial<CanvasErrorBoundaryState> | null {
+    if (!prev.error) return null;
+    if (prev.triggeringComponent !== next.payload.component) {
+      return { error: null, triggeringComponent: null };
+    }
+    return null;
+  }
+
+  override componentDidCatch(error: Error): void {
+    console.warn(
+      `[canvas] component "${this.props.payload.component}" threw: ${error.message}`,
+    );
+    this.setState({ triggeringComponent: this.props.payload.component });
+  }
+
+  private handleRetry = (): void => {
+    this.setState({ error: null, triggeringComponent: null });
+    try {
+      this.props.onRetry?.();
+    } catch (err) {
+      console.warn('[canvas-error-boundary] retry threw', err);
+    }
+  };
+
+  override render(): ReactNode {
+    if (this.state.error) {
+      return (
+        <CanvasError
+          message={this.state.error.message}
+          componentName={
+            this.state.triggeringComponent ?? this.props.payload.component
+          }
+          onRetry={this.handleRetry}
+        />
+      );
+    }
+    return this.props.children;
   }
 }

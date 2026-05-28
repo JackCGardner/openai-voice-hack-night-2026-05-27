@@ -11,6 +11,13 @@ import { ChatSurface, type ChatMessage } from './components/ChatSurface';
 import { StripSurface } from './components/StripSurface';
 import { devToolCall } from './lib/toolBridge';
 import type { StripStateKind } from '../../shared/state';
+// ─── § W4 P5 polish hooks (append-only — docs/contracts.md § 13.2) ──────
+// These hooks own all P5.1 + P5.3 side-effects so App.tsx stays a single
+// orchestrator. Each is defensively-coded — missing bridges noop quietly.
+import { useAssistantCaptionStream } from './hooks/useAssistantCaptionStream';
+import { useStripDragHandle } from './hooks/useStripDragHandle';
+import { useOnboarding } from './hooks/useOnboarding';
+import { useAudioCuesMount } from './hooks/useAudioCuesMount';
 
 // EscalationDetail was removed from state/sim; we now treat the
 // escalation CustomEvent payload as a structural shape rather than a
@@ -58,6 +65,18 @@ export function App(): JSX.Element {
   const [input, setInput] = useState('');
   const [micMode, setMicMode] = useState(client.micMode);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  // ─── § W4 P5 polish wiring (append-only) ────────────────────────────────
+  // Captions stream (P5.1), Strip-as-Canvas-handle (P5.3), onboarding form
+  // (P5.3), and the audio cues mount (P5.2 — owned by W3 but mounted here
+  // per the App.tsx hook convention in docs/contracts.md § 13.2). All four
+  // hooks are no-ops on the `chat` debug surface; they activate when the
+  // strip overlay window mounts.
+  useAssistantCaptionStream(client);
+  useStripDragHandle();
+  useOnboarding(client);
+  useAudioCuesMount();
+  // ─────────────────────────────────────────────────────────────────────────
 
   // Log Realtime lifecycle. W3 reflects this into store.setRealtimeStatus later.
   useEffect(() => {

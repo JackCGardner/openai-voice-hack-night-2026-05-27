@@ -182,3 +182,181 @@ a,
     0 0 24px var(--pulse-glow);
   transform-origin: center;
 }
+
+/* ─── § captions (W4 — P5.1) ────────────────────────────────────────────────
+ * Fading subtitle row anchored 24px below the Strip surface. Text-shadow
+ * only — no background pill — so it stays legible over any wallpaper.
+ * Word fade-in + row fade-out are driven by Captions.tsx in JS; CSS only
+ * provides typography + position.
+ * ──────────────────────────────────────────────────────────────────────────*/
+
+.captions-root {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* The Strip's visual occupies the center band of its overlay window.
+   * Anchor captions 24px below the bottom of the bottom-most pill so they
+   * never overlap the Strip in any state. The window itself is
+   * transparent — overflow simply paints over the desktop. */
+  top: calc(50% + 90px + 24px);
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  user-select: none;
+  z-index: 5;
+}
+
+.captions-row {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  max-width: min(90vw, 520px);
+  padding: 0;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: #ffffff;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.65),
+    0 0 8px rgba(0, 0, 0, 0.55),
+    0 0 1px rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.captions-word {
+  display: inline-block;
+  transition: opacity 80ms linear;
+}
+
+/* ─── § strip-drag-handle (W4 — P5.3) ──────────────────────────────────────
+ * When the Canvas is open the Strip becomes a drag handle for the window.
+ * Body sets `data-strip-drag="on"` from a hook in App.tsx; html.draggable
+ * is already on by globals — this layer just toggles cursor affordance and
+ * makes sure interactive children stay clickable.
+ * ──────────────────────────────────────────────────────────────────────────*/
+
+html[data-strip-drag='on'] .strip-root {
+  cursor: grab;
+}
+html[data-strip-drag='on'] .strip-root:active {
+  cursor: grabbing;
+}
+
+/* ─── § dormant-peek (W4 — P5.3) ───────────────────────────────────────────
+ * Hover-to-peek expansion for the dormant Strip. The peek panel renders to
+ * the LEFT of the pill (right-edge overlay) so it grows into screen space
+ * the window already occupies during the resize the hook performs.
+ * ──────────────────────────────────────────────────────────────────────────*/
+
+.dormant-peek {
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 0.5px solid var(--border-subtle);
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-strip);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.dormant-peek-goal {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dormant-peek-meta {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ─── § canvas-form (W4 — P5.3 onboarding) ────────────────────────────────
+ * Minimal-seed onboarding form rendered inside the Canvas window. Uses the
+ * same shell tokens as Moodboard / ArtifactPreview. Lives in canvas.css too,
+ * but mirrored here so the form looks correct if the Canvas window picks up
+ * globals.css (it does — see canvas/main.tsx import order).
+ * ──────────────────────────────────────────────────────────────────────────*/
+
+.onboard-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+}
+
+.onboard-form-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+}
+
+.onboard-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.onboard-form-field label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.onboard-form-field input,
+.onboard-form-field select {
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 0.5px solid var(--border-subtle);
+  background: rgba(20, 20, 22, 0.55);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  -webkit-app-region: no-drag;
+}
+
+.onboard-form-field input:focus-visible,
+.onboard-form-field select:focus-visible {
+  outline: 2px solid var(--status-thinking);
+  outline-offset: 2px;
+}
+
+.onboard-form-submit {
+  height: 36px;
+  border-radius: 10px;
+  border: 0.5px solid rgba(88, 214, 141, 0.3);
+  background: rgba(88, 214, 141, 0.18);
+  color: var(--status-working);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background 160ms var(--ease-smooth);
+}
+
+.onboard-form-submit:hover {
+  background: rgba(88, 214, 141, 0.28);
+}
+
+.onboard-form-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
