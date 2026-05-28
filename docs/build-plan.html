@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Director — Build Plan</title>
+<link rel="preconnect" href="https://rsms.me/" />
+<link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+<style>
+:root {
+  --bg: #0E0D14;
+  --surface: #181820;
+  --surface-2: #1F1F28;
+  --border: rgba(255,255,255,0.08);
+  --border-strong: rgba(255,255,255,0.16);
+  --text: #ECECF0;
+  --text-2: #9B9BA0;
+  --text-3: #5E5E62;
+  --green: #58D68D;
+  --amber: #E8A95C;
+  --blue: #6E94E8;
+  --red: #E07866;
+  --coral: #E07856;
+  --teal: #4A9E9C;
+  --ochre: #C99550;
+  --plum: #9670A0;
+  --crit: #F26B5C;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: "Inter", system-ui, -apple-system, sans-serif; font-feature-settings: "ss01", "cv11"; }
+body { padding: 32px 40px 80px; max-width: 1600px; margin: 0 auto; }
+
+header { display: flex; align-items: center; gap: 32px; padding-bottom: 24px; border-bottom: 1px solid var(--border); margin-bottom: 32px; }
+header h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+header .sub { color: var(--text-2); font-size: 13px; }
+header .spacer { flex: 1; }
+
+.clock {
+  display: flex; align-items: baseline; gap: 12px; padding: 10px 16px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+}
+.clock label { font-size: 11px; letter-spacing: 0.8px; color: var(--text-3); text-transform: uppercase; }
+.clock #elapsed { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 18px; font-weight: 500; color: var(--green); }
+.clock button {
+  background: transparent; color: var(--text-2); border: 1px solid var(--border-strong); border-radius: 6px;
+  padding: 4px 10px; font-size: 11px; cursor: pointer; font-family: inherit;
+}
+.clock button:hover { color: var(--text); border-color: var(--text-3); }
+
+h2 { font-size: 14px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-2); margin: 36px 0 12px; }
+h2:first-of-type { margin-top: 0; }
+
+/* ── Gantt ─────────────────────────────────────────────────────────────── */
+.gantt {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: 20px 0 4px; overflow-x: auto;
+}
+.gantt-grid {
+  display: grid;
+  grid-template-columns: 220px repeat(13, 1fr);
+  align-items: center; gap: 0;
+  min-width: 1200px;
+}
+.gantt-header { font-size: 11px; color: var(--text-3); letter-spacing: 0.4px; padding: 0 8px 14px; }
+.gantt-tick { font-family: "JetBrains Mono", monospace; font-size: 11px; color: var(--text-3); text-align: center; padding: 0 4px 14px; border-left: 1px dashed var(--border); }
+.gantt-tick:first-of-type { border-left: none; }
+
+.gantt-row {
+  display: grid;
+  grid-template-columns: 220px repeat(13, 1fr);
+  gap: 0;
+  border-top: 1px solid var(--border);
+  padding: 14px 0; align-items: center;
+  min-width: 1200px;
+  position: relative;
+}
+.gantt-label { padding: 0 8px 0 16px; }
+.gantt-label .stream { font-weight: 600; font-size: 13px; color: var(--text); }
+.gantt-label .stream small { display: block; color: var(--text-2); font-weight: 400; font-size: 11px; margin-top: 2px; }
+.gantt-cell {
+  border-left: 1px dashed var(--border);
+  height: 28px;
+  position: relative;
+}
+.gantt-cell:first-of-type { border-left: none; }
+
+.bar {
+  position: absolute; top: 4px; bottom: 4px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  display: flex; align-items: center; justify-content: flex-start;
+  padding: 0 10px;
+  font-size: 11px; color: var(--text); letter-spacing: 0.2px;
+  overflow: hidden; white-space: nowrap;
+}
+.bar.crit { border: 1px solid var(--crit); box-shadow: inset 0 0 0 1px rgba(242,107,92,0.4); }
+.bar.green { background: rgba(88,214,141,0.16); border-color: rgba(88,214,141,0.4); }
+.bar.blue { background: rgba(110,148,232,0.16); border-color: rgba(110,148,232,0.4); }
+.bar.amber { background: rgba(232,169,92,0.16); border-color: rgba(232,169,92,0.4); }
+.bar.coral { background: rgba(224,120,86,0.16); border-color: rgba(224,120,86,0.4); }
+.bar.plum { background: rgba(150,112,160,0.16); border-color: rgba(150,112,160,0.4); }
+
+.checkpoint-row {
+  display: grid;
+  grid-template-columns: 220px repeat(13, 1fr);
+  min-width: 1200px;
+  padding-top: 8px;
+}
+.checkpoint-label { padding: 0 8px 0 16px; font-size: 11px; color: var(--text-3); letter-spacing: 0.4px; text-transform: uppercase; }
+.checkpoint-flag {
+  position: relative; height: 22px; border-left: 1px dashed var(--border);
+}
+.flag {
+  position: absolute; top: -4px;
+  font-family: "JetBrains Mono", monospace; font-size: 10px; font-weight: 600;
+  background: var(--bg); border: 1px solid var(--green); color: var(--green);
+  border-radius: 4px; padding: 2px 6px;
+  white-space: nowrap;
+}
+
+/* ── Critical path ─────────────────────────────────────────────────────── */
+.crit-box {
+  background: linear-gradient(135deg, rgba(242,107,92,0.08), rgba(242,107,92,0.02));
+  border: 1px solid rgba(242,107,92,0.3); border-radius: 14px;
+  padding: 20px 24px;
+}
+.crit-box .path { font-family: "JetBrains Mono", monospace; font-size: 14px; color: var(--crit); margin-bottom: 12px; }
+.crit-box ul { margin: 0; padding-left: 18px; color: var(--text-2); font-size: 13px; line-height: 1.6; }
+
+/* ── Lanes ─────────────────────────────────────────────────────────────── */
+.lanes { display: grid; grid-template-columns: 1fr; gap: 16px; }
+.lane {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: 16px 20px;
+}
+.lane-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+.lane-head .id { font-family: "JetBrains Mono", monospace; font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--surface-2); color: var(--text-2); }
+.lane-head .title { font-weight: 600; font-size: 15px; }
+.lane-head .owner { color: var(--text-3); font-size: 12px; margin-left: auto; font-family: "JetBrains Mono", monospace; }
+.lane-tasks { display: grid; gap: 6px; margin-top: 8px; }
+.task { display: grid; grid-template-columns: 60px 1fr; gap: 12px; padding: 6px 0; font-size: 13px; color: var(--text-2); border-top: 1px dashed var(--border); }
+.task .t { font-family: "JetBrains Mono", monospace; font-size: 11px; color: var(--text-3); padding-top: 2px; }
+.task:first-of-type { border-top: none; }
+
+/* ── Checkpoints ───────────────────────────────────────────────────────── */
+.checks { display: grid; gap: 8px; }
+.check {
+  display: grid; grid-template-columns: 36px 56px 1fr 1fr 120px;
+  gap: 16px; align-items: center;
+  padding: 14px 18px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.check.done { border-color: rgba(88,214,141,0.4); background: linear-gradient(135deg, rgba(88,214,141,0.06), transparent 60%); }
+.check.failed { border-color: rgba(224,120,102,0.4); background: linear-gradient(135deg, rgba(224,120,102,0.08), transparent 60%); }
+.check-id { font-family: "JetBrains Mono", monospace; font-weight: 600; font-size: 14px; color: var(--text); }
+.check-time { font-family: "JetBrains Mono", monospace; font-size: 12px; color: var(--text-2); }
+.check-what { font-size: 13px; color: var(--text); }
+.check-what .meta { display: block; color: var(--text-3); font-size: 11px; margin-top: 2px; }
+.check-verifies { font-size: 12px; color: var(--text-2); }
+.check-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.check-actions button {
+  background: transparent; border: 1px solid var(--border-strong); color: var(--text-2);
+  border-radius: 6px; padding: 6px 10px; font-size: 11px; cursor: pointer; font-family: inherit;
+}
+.check-actions button:hover { color: var(--text); border-color: var(--text-2); }
+.check-actions button.ok:hover { color: var(--green); border-color: var(--green); }
+.check-actions button.fail:hover { color: var(--red); border-color: var(--red); }
+.check.done .check-id { color: var(--green); }
+.check.failed .check-id { color: var(--red); }
+
+/* ── Cuts ──────────────────────────────────────────────────────────────── */
+.cuts { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 20px; }
+.cuts ul { margin: 8px 0 0; padding-left: 18px; color: var(--text-2); font-size: 13px; line-height: 1.7; }
+.cuts strong { color: var(--text); }
+
+footer { margin-top: 40px; text-align: center; color: var(--text-3); font-size: 11px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Director — 60-minute Build Plan</h1>
+    <div class="sub">5 parallel workers · Mixtape demo · OpenAI Voice Hackathon</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="clock">
+    <label>Elapsed</label>
+    <span id="elapsed">00:00</span>
+    <button id="startBtn">Start</button>
+    <button id="resetBtn">Reset</button>
+  </div>
+</header>
+
+<h2>Gantt</h2>
+<div class="gantt">
+  <div class="gantt-grid">
+    <div class="gantt-header">Workstream</div>
+    <div class="gantt-tick">T+0</div>
+    <div class="gantt-tick">5</div>
+    <div class="gantt-tick">10</div>
+    <div class="gantt-tick">15</div>
+    <div class="gantt-tick">20</div>
+    <div class="gantt-tick">25</div>
+    <div class="gantt-tick">30</div>
+    <div class="gantt-tick">35</div>
+    <div class="gantt-tick">40</div>
+    <div class="gantt-tick">45</div>
+    <div class="gantt-tick">50</div>
+    <div class="gantt-tick">55</div>
+    <div class="gantt-tick">60</div>
+  </div>
+
+  <!-- W1 -->
+  <div class="gantt-row">
+    <div class="gantt-label"><div class="stream">W1 · Realtime voice <small>WebRTC client, token endpoint, hotkey routing</small></div></div>
+    <div class="gantt-cell" style="grid-column: 2 / span 13;">
+      <div class="bar crit blue" style="left: 0%; width: 50%;">token → WebRTC → tool route · CRITICAL</div>
+    </div>
+  </div>
+
+  <!-- W2 -->
+  <div class="gantt-row">
+    <div class="gantt-label"><div class="stream">W2 · Strip + Hive UI <small>Dormant, Listening, Hive states from Pencil</small></div></div>
+    <div class="gantt-cell" style="grid-column: 2 / span 13;">
+      <div class="bar crit coral" style="left: 0%; width: 41.7%;">Dormant → Listening → Hive · CRITICAL</div>
+    </div>
+  </div>
+
+  <!-- W3 -->
+  <div class="gantt-row">
+    <div class="gantt-label"><div class="stream">W3 · State machine + IPC <small>Zustand store, events, agent simulator</small></div></div>
+    <div class="gantt-cell" style="grid-column: 2 / span 13;">
+      <div class="bar crit green" style="left: 8.3%; width: 33.4%;">Store · events · sim driver · CRITICAL</div>
+    </div>
+  </div>
+
+  <!-- W4 -->
+  <div class="gantt-row">
+    <div class="gantt-label"><div class="stream">W4 · Canvas + GenUI <small>Canvas shell, Moodboard, Artifact Preview</small></div></div>
+    <div class="gantt-cell" style="grid-column: 2 / span 13;">
+      <div class="bar plum" style="left: 16.7%; width: 58.3%;">Canvas shell · Moodboard · Artifact Preview</div>
+    </div>
+  </div>
+
+  <!-- W5 -->
+  <div class="gantt-row">
+    <div class="gantt-label"><div class="stream">W5 · Demo orchestration <small>Glue, demo timeline, escalation choreography</small></div></div>
+    <div class="gantt-cell" style="grid-column: 2 / span 13;">
+      <div class="bar crit amber" style="left: 41.7%; width: 58.3%;">Wire all + Mixtape demo script · CRITICAL</div>
+    </div>
+  </div>
+
+  <!-- Checkpoints -->
+  <div class="checkpoint-row">
+    <div class="checkpoint-label">Checkpoints</div>
+    <div class="checkpoint-flag" style="grid-column: 4;"><span class="flag" style="left: -10px;">C1</span></div>
+    <div class="checkpoint-flag" style="grid-column: 5;"><span class="flag" style="left: -10px;">C2</span></div>
+    <div class="checkpoint-flag" style="grid-column: 7;"><span class="flag" style="left: -10px;">C3</span></div>
+    <div class="checkpoint-flag" style="grid-column: 8;"><span class="flag" style="left: -10px;">C4</span></div>
+    <div class="checkpoint-flag" style="grid-column: 9;"><span class="flag" style="left: -10px;">C5</span></div>
+    <div class="checkpoint-flag" style="grid-column: 11;"><span class="flag" style="left: -10px;">C6</span></div>
+    <div class="checkpoint-flag" style="grid-column: 13;"><span class="flag" style="left: -10px;">C7</span></div>
+  </div>
+</div>
+
+<h2>Critical Path Analysis</h2>
+<div class="crit-box">
+  <div class="path">W1 ──▶ W3 ──▶ W5</div>
+  <ul>
+    <li><strong>W1 → W3</strong>: Realtime client must emit transcript + tool events into the state machine before agent simulation can react.</li>
+    <li><strong>W3 → W5</strong>: Demo orchestration drives state transitions (dispatch agents, trigger blocker, escalate). Without state, nothing animates on cue.</li>
+    <li><strong>Slack zero</strong>: any slip on the critical path pushes the demo finale. If W1 isn't shipping by T+25, fall back to "pre-recorded voice" mode — Realtime mute, scripted audio playback. Visual demo still works.</li>
+    <li><strong>W2 must finish by T+25</strong>: no UI = no demo surface. This is the second most painful path.</li>
+    <li><strong>W4 slips are survivable</strong>: lose ArtifactPreview last; Moodboard alone still demos the "voice → visual" beat.</li>
+  </ul>
+</div>
+
+<h2>Progress vs Plan (right now)</h2>
+<div class="cuts">
+  <ul>
+    <li><strong>Boilerplate</strong>: ✅ Done — apps/director/ scaffolded with electron-vite + React + Tailwind + Zustand. <em>Uncommitted</em>.</li>
+    <li><strong>Pencil mockups</strong>: 🟡 In flight — 7 frames + components shipped, BG agent finishing the remaining 6 Canvas frames with full context.</li>
+    <li><strong>W1 (Realtime)</strong>: 🔴 Not started — <strong>start NOW</strong>.</li>
+    <li><strong>W2 (UI)</strong>: 🔴 Not started — depends on Pencil finishing.</li>
+    <li><strong>W3 (State)</strong>: 🔴 Not started — needs starter Zustand from boilerplate.</li>
+    <li><strong>W4 (Canvas)</strong>: 🔴 Not started — depends on W2.</li>
+    <li><strong>W5 (Orchestration)</strong>: 🔴 Not started — last.</li>
+  </ul>
+</div>
+
+<h2>Lanes (what each worker actually does)</h2>
+<div class="lanes">
+
+  <div class="lane">
+    <div class="lane-head"><span class="id">W1</span><span class="title">Realtime voice</span><span class="owner">opus / agent · 30 min</span></div>
+    <div class="lane-tasks">
+      <div class="task"><span class="t">T+0–5</span><span>Add <code>openai</code> npm dep; main-process route to mint ephemeral token via <code>POST /v1/realtime/client_secrets</code>.</span></div>
+      <div class="task"><span class="t">T+5–15</span><span>WebRTC peer in renderer; attach mic <code>MediaStreamTrack</code>; data channel for events.</span></div>
+      <div class="task"><span class="t">T+15–25</span><span>Wire hotkey IPC → mute/unmute mic track; barge-in via <code>input_audio_buffer.speech_started</code>.</span></div>
+      <div class="task"><span class="t">T+25–30</span><span>Define minimal tools (<code>render_canvas</code>, <code>ask_user</code>) in <code>session.update</code>; tool call routes via IPC to renderer state.</span></div>
+    </div>
+  </div>
+
+  <div class="lane">
+    <div class="lane-head"><span class="id">W2</span><span class="title">Strip + Hive UI</span><span class="owner">opus / agent · 25 min</span></div>
+    <div class="lane-tasks">
+      <div class="task"><span class="t">T+0–8</span><span>DormantStrip — translate from Pencil (breathing pulse, 12×180, vibrancy). Already exists in boilerplate.</span></div>
+      <div class="task"><span class="t">T+8–15</span><span>ListeningStrip — live waveform from <code>AnalyserNode</code> on mic stream; cyan tint, glow.</span></div>
+      <div class="task"><span class="t">T+15–25</span><span>HiveStrip — animated 4-row layout with status disc + named identifier + trail; from state store.</span></div>
+    </div>
+  </div>
+
+  <div class="lane">
+    <div class="lane-head"><span class="id">W3</span><span class="title">State machine + IPC</span><span class="owner">opus / agent · 20 min</span></div>
+    <div class="lane-tasks">
+      <div class="task"><span class="t">T+5–10</span><span>Zustand store: <code>{ stripState, agents[], canvas, transcript }</code>. Mutation actions.</span></div>
+      <div class="task"><span class="t">T+10–18</span><span>IPC events: <code>state.patch</code>, <code>hotkey.pressed</code>, <code>tool.canvas</code>, <code>tool.ask</code>. Typed in shared/ipc.ts.</span></div>
+      <div class="task"><span class="t">T+18–25</span><span>Agent simulator: timer-driven state advance (dispatch → working → blocker → done) for demo.</span></div>
+    </div>
+  </div>
+
+  <div class="lane">
+    <div class="lane-head"><span class="id">W4</span><span class="title">Canvas + GenUI</span><span class="owner">opus / agent · 35 min</span></div>
+    <div class="lane-tasks">
+      <div class="task"><span class="t">T+10–18</span><span>Canvas shell — frosted panel that slides out from Strip-handle, spring physics, dismiss flow.</span></div>
+      <div class="task"><span class="t">T+18–30</span><span>Moodboard component — 3 image tiles with voice-resolved selection halo. Pre-generate 3 AI images at build (or use seeded URLs).</span></div>
+      <div class="task"><span class="t">T+30–45</span><span>ArtifactPreview — live Mixtape card (cover + tracklist + flip animation). The demo punchline.</span></div>
+    </div>
+  </div>
+
+  <div class="lane">
+    <div class="lane-head"><span class="id">W5</span><span class="title">Demo orchestration</span><span class="owner">opus / agent · 30 min</span></div>
+    <div class="lane-tasks">
+      <div class="task"><span class="t">T+25–35</span><span>Wire Realtime tool calls → state mutations → UI animations. Test full loop with mock.</span></div>
+      <div class="task"><span class="t">T+35–45</span><span>Scripted Mixtape demo timeline: dispatch agents → Canvas moodboard → blocker → resolve → final reveal.</span></div>
+      <div class="task"><span class="t">T+45–55</span><span>Audio cues (confirm, chime, escalation, done) — synthesize from spec.</span></div>
+      <div class="task"><span class="t">T+55–60</span><span>Dry run + polish + presenter notes.</span></div>
+    </div>
+  </div>
+
+</div>
+
+<h2>Ruthless cuts (post-MVP — do NOT build today)</h2>
+<div class="cuts">
+  <ul>
+    <li><strong>Real Codex spawning</strong> — agents are simulated (timer-driven state advance). The voice/UI experience is what we're selling.</li>
+    <li><strong>Session rotation</strong> (60-min cap) — demo is &lt; 60 min.</li>
+    <li><strong>Compaction</strong> — irrelevant in demo window.</li>
+    <li><strong>Harness persistence to disk</strong> — keep in memory; rule save still flashes Canvas.</li>
+    <li><strong>FormField (mic permission) Canvas</strong> — assume permission granted at start.</li>
+    <li><strong>Code preview Canvas</strong> — skip.</li>
+    <li><strong>Diagram Canvas (Mermaid)</strong> — skip.</li>
+    <li><strong>Onboarding welcome sequence</strong> — first launch goes straight to dormant.</li>
+    <li><strong>Session resume prompt</strong> — always fresh.</li>
+    <li><strong>Hotkey conflict detection</strong> — assume ⌘⇧Space available.</li>
+    <li><strong>Auto-DND / macOS Focus integration</strong> — skip.</li>
+    <li><strong>Multi-monitor / responsive</strong> — primary display only.</li>
+    <li><strong>Reduced motion / accessibility polish</strong> — phase 2.</li>
+  </ul>
+</div>
+
+<h2>Checkpoints — click as you verify</h2>
+<div class="checks" id="checks"></div>
+
+<footer>
+  Director · Voice Hackathon · 2026-05-27 · Built with the same urgency as the product.
+</footer>
+
+<script>
+const checkpoints = [
+  { id: "C1", t: 10, what: "App boots, Strip on right edge of screen, breathing pulse animates", meta: "Run `pnpm install` then `pnpm --filter director dev`", verifies: "Boilerplate + W2 partial" },
+  { id: "C2", t: 15, what: "⌘⇧Space toggles Strip to listening state; mic permission granted", meta: "Tap once = mic open with waveform. Tap again = closed.", verifies: "W1 hotkey + W2 listening state" },
+  { id: "C3", t: 25, what: "Say 'hello' — Realtime responds with audio in <2s", meta: "End-to-end voice loop alive", verifies: "W1 complete" },
+  { id: "C4", t: 30, what: "Say 'build Mixtape' — Strip expands to Hive view with 4 named agents", meta: "Maya, Jin, Cleo, Wren — each with status disc + trail text", verifies: "W2 Hive + W3 state" },
+  { id: "C5", t: 35, what: "Canvas slides out with Mixtape moodboard, 3 AI images visible", meta: "User can speak 'the cassette one' — halo + auto-dismiss", verifies: "W4 Canvas + Moodboard" },
+  { id: "C6", t: 45, what: "Jin (Backend) goes amber, Director speaks unprompted, Strip bounces", meta: "User answers, ring returns to green", verifies: "W3 sim + W5 escalation" },
+  { id: "C7", t: 55, what: "Canvas shows live interactive Mixtape card with cover + tracklist", meta: "Flip animation works on click — DEMO PUNCHLINE", verifies: "W4 ArtifactPreview + W5 finale" },
+];
+
+const root = document.getElementById("checks");
+const state = JSON.parse(localStorage.getItem("director-build-checks") || "{}");
+
+function render() {
+  root.innerHTML = "";
+  for (const c of checkpoints) {
+    const status = state[c.id] || "pending";
+    const el = document.createElement("div");
+    el.className = "check " + (status === "done" ? "done" : status === "failed" ? "failed" : "");
+    el.innerHTML = `
+      <div class="check-id">${c.id}</div>
+      <div class="check-time">T+${c.t}m</div>
+      <div class="check-what">${c.what}<span class="meta">${c.meta}</span></div>
+      <div class="check-verifies">${c.verifies}</div>
+      <div class="check-actions">
+        <button class="ok" data-id="${c.id}" data-status="done">${status === "done" ? "✓ done" : "Pass"}</button>
+        <button class="fail" data-id="${c.id}" data-status="failed">${status === "failed" ? "✗ failed" : "Fail"}</button>
+        <button data-id="${c.id}" data-status="pending">Reset</button>
+      </div>
+    `;
+    root.appendChild(el);
+  }
+}
+render();
+
+root.addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  const id = btn.dataset.id; const s = btn.dataset.status;
+  if (s === "pending") delete state[id]; else state[id] = s;
+  localStorage.setItem("director-build-checks", JSON.stringify(state));
+  render();
+});
+
+// Clock
+let startTime = null;
+const elapsedEl = document.getElementById("elapsed");
+const startBtn = document.getElementById("startBtn");
+const resetBtn = document.getElementById("resetBtn");
+
+const stored = localStorage.getItem("director-build-start");
+if (stored) { startTime = parseInt(stored, 10); startBtn.textContent = "Running"; }
+
+function tick() {
+  if (!startTime) { elapsedEl.textContent = "00:00"; return; }
+  const ms = Date.now() - startTime;
+  const m = Math.floor(ms / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  elapsedEl.textContent = String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+  if (m >= 60) { elapsedEl.style.color = "var(--red)"; }
+  else if (m >= 45) { elapsedEl.style.color = "var(--amber)"; }
+  else { elapsedEl.style.color = "var(--green)"; }
+}
+setInterval(tick, 250); tick();
+
+startBtn.addEventListener("click", () => {
+  if (!startTime) { startTime = Date.now(); localStorage.setItem("director-build-start", String(startTime)); startBtn.textContent = "Running"; }
+});
+resetBtn.addEventListener("click", () => {
+  startTime = null; localStorage.removeItem("director-build-start"); startBtn.textContent = "Start"; elapsedEl.style.color = "var(--green)"; tick();
+});
+</script>
+</body>
+</html>
