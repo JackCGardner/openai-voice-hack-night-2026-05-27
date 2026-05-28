@@ -335,7 +335,7 @@ const workers = [
     role: "CANVAS", name: "Worker 5", domain: "Canvas BrowserWindow · GenUI React components · iframe punchline",
     tasks: [
       { id: "p2.c2", phase: "P2", name: "Canvas visual QA", t0: 4, t1: 4.5, status: "done", body: "Folded into Main's R2 review." },
-      { id: "p4.d", phase: "P4", name: "Dogfood: real Codex builds Mixtape TODOs", t0: 8.5, t1: 9.5, status: "next", crit: true, body: "Flip DIRECTOR_USE_REAL_CODEX, dispatch Jin against examples/mixtape, verify iframe punchline shows the completed flippable card. Needs W3 P4c so Hive reflects file events live." },
+      { id: "p4.d", phase: "P4", name: "Headless dogfood: real Codex builds Mixtape TODOs", t0: 8.5, t1: 9.5, status: "next", crit: true, body: "Headless-only: CLI script invokes codex-pool directly against examples/mixtape with Jin's task. Verify worktree diff turns route.ts from 501-stub into real impl + Mixtape typecheck + build pass + curl against built/started Mixtape returns 200 with Mixtape JSON. Iframe visual confirmation is folded into the user's R3 hands-on test." },
       { id: "p6.f", phase: "P6", name: "Canvas error boundary + degradation cards", t0: 9.5, t1: 11, status: "pending", body: "Moved from W4 → W5 (Canvas-component wheelhouse). React error boundary around CanvasApp + four NEW Canvas components: MicDenied (with macOS Settings deeplink), ApiKeyMissing (text input + save), RotationFailed (soft notice), CanvasError (retry button). Per architecture.md §9." },
     ]
   },
@@ -398,14 +398,15 @@ const checkpoints = [
     ]
   },
   { id: "R3", at: 9.5, gates: "P4 finish → P5+P6+P7",
-    title: "3-tier alive + Mixtape dogfood?",
-    sub: "Verify W3 P4c (Codex events → Hive store) and W5 P4d (DIRECTOR_USE_REAL_CODEX dogfood against examples/mixtape) before the P5+P6+P7 parallel batch fires.",
+    title: "3-tier alive + headless dogfood?",
+    sub: "Verify W3 P4c (Codex events → Hive store) headless + W5 P4d (headless CLI dogfood — Jin against examples/mixtape, diff + typecheck + curl) before the P5+P6+P7 parallel batch fires. Final iframe visual + voice round-trip is the user's hands-on test at R3 close.",
     criteria: [
-      "consult_director call → audio narration of planner reasoning",
-      "Real Codex subprocesses spawn with AGENTS.md identities (DIRECTOR_USE_REAL_CODEX=1)",
-      "file_change / turn.completed events update Hive in real time",
-      "harness.json + decisions.jsonl + agents/<id>.json on disk after a session",
-      "Mixtape iframe punchline shows a completed flippable card after a real Codex run",
+      "headless: real Codex subprocess spawns with Jin AGENTS.md identity (DIRECTOR_USE_REAL_CODEX=1)",
+      "headless: file_change / turn.completed events emitted on codex.event channel and applied by ipcSync to the store (unit-testable)",
+      "headless: route.ts diff shows real implementation (no longer 501-stub) + mixtape typecheck + build pass",
+      "headless: curl against built/started mixtape returns 200 with Mixtape JSON",
+      "headless: harness.json + decisions.jsonl + agents/<id>.json on disk after the dogfood run",
+      "user hands-on (R3 close): launch Director, dispatch Jin via voice, Canvas iframe renders the completed flippable card",
     ]
   },
   { id: "R4", at: 14.5, gates: "P5+P6+P7 → ship",

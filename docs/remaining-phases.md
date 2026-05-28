@@ -273,17 +273,23 @@ The rebalance introduced two new shared-file points between Main and W1. Both ar
 
 ## R3 prerequisites (gate before P5/P6/P7 fire)
 
-1. **W3 P4c**: Codex events → store actions. `apps/director/src/renderer/src/state/ipcSync.ts` subscribes to `codex.fileChange` / `codex.turnCompleted` / `codex.error` events and dispatches the existing `addAgent / updateAgent / blockAgent / completeAgent` store actions.
-2. **W5 P4d**: Mixtape dogfood. Flip `DIRECTOR_USE_REAL_CODEX=1`. Dispatch Jin (backend) against `examples/mixtape` to implement `app/api/mixtape/[id]/route.ts`. Verify iframe Canvas punchline shows a completed flippable card.
+R3 is split into a **headless verification** the workers complete, and a **hands-on visual confirmation** the user runs at R3 close (launching the app + voice round-trip). Workers never run the Director app — they verify everything via CLI, unit tests, and curl.
 
-R3 verifies:
-- `consult_director` audio narration round-trip
-- 4 real Codex subprocesses spawn with their AGENTS.md personas
-- file_change / turn.completed events update Hive in real time
-- side store on disk (harness.json + decisions.jsonl + agents/<id>.json + transcript.jsonl)
-- Mixtape Canvas iframe shows a real artifact built by a real agent
+### Headless prerequisites (workers)
 
-After R3 passes, P5/P6/P7 fire as a parallel batch.
+1. **W3 P4c — Codex events → store actions (headless).** `apps/director/src/renderer/src/state/ipcSync.ts` subscribes to the `codex.event` channel (already emitted by `apps/director/src/main/codex-pool.ts`) and maps event types onto the existing renderer store commands (`addAgent` / `updateAgent` for status + currentTask + recentFiles, `blockAgent` on `error`, `completeAgent` on `agent_finished`). Verified by unit test that pushes synthetic `CodexEvent` payloads and asserts store transitions.
+2. **W5 P4d — Headless dogfood CLI script.** New file at `apps/director/scripts/dogfood-mixtape.mts` (or similar) that:
+   - sets `DIRECTOR_USE_REAL_CODEX=1`
+   - invokes the codex-pool's `dispatchAgent({ agentId: 'jin', role: 'backend', task, targetRepo: examples/mixtape })` directly (not through the Realtime tool route)
+   - waits for `agent_finished` event
+   - runs `git -C <worktree> diff app/api/mixtape/\[id\]/route.ts` and asserts it's no longer the 501 stub
+   - runs `pnpm --filter mixtape typecheck && pnpm --filter mixtape build` from the worktree
+   - merges the worktree into a temp branch, then `pnpm --filter mixtape start` + curl `http://localhost:3000/api/mixtape/test-id` → expect 200 + valid Mixtape JSON
+   - cleans up worktree + temp branch
+
+### Hands-on verification (user, at R3 close)
+
+The user launches Director, dispatches Jin via voice, watches the Canvas iframe render the completed Mixtape route. This is the only step that requires running the Electron app — workers never launch it.
 
 ---
 
