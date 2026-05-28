@@ -1,85 +1,82 @@
 /**
  * Mixtape demo simulator.
  *
- * Drives the "happy path" demo from a single timer: four agents dispatched,
- * one (Jin) blocks at ~T+90s on a backend ambiguity, resolves on user input,
- * everyone ships. Purely timer-driven — no Realtime / Codex / IPC needed.
+ * Drives the "happy path" demo: dispatches the four named agents, runs
+ * trail updates on a timer, blocks Jin at the spec moment, waits for the
+ * user (or the orchestration layer) to resolve, then completes everyone in
+ * the canonical order. Purely timer-driven — no Realtime / Codex / IPC.
  *
- * The simulator writes to BOTH stores:
- *   - `useDirectorStore` (view-model) — so W2's strip + Hive UI animates.
- *   - `useStore` (canonical) — so the state machine evolves in lockstep,
- *     letting future surfaces (canvas, transcript, harness) ride along.
+ * Two timelines:
+ *   - `compressed: true`  (default for dev key D)      — full demo in ~60s.
+ *   - `compressed: false` (canonical, docs/demo-timeline.md) — Jin blocks
+ *     50s after the first dispatch; completions land at 140s/155s/175s/195s.
+ *     All times relative to startMixtapeDemo() — i.e. they assume the first
+ *     `dispatch_agent_mock` call (real T+0:55 in the demo doc) is the
+ *     trigger.
  *
- * Usage:
- *
- *   import { startMixtapeDemo, resolveJinBlocker } from './state/sim';
- *   startMixtapeDemo();                        // begin
- *   resolveJinBlocker('mock the Stripe gateway');  // unblock Jin
- *
- * The demo is fully cancellable: `startMixtapeDemo()` returns a `stop()`
- * fn that clears all pending timers and leaves the store untouched.
+ * When Jin blocks, a `director:escalation` CustomEvent fires on `window` so
+ * any layer (App.tsx debug log, future Realtime injector) can react. See
+ * docs/ipc-contracts.md §10 for the event contract.
  */
 
-import {
-  commands,
-  getStore,
-  useDirectorStore,
-  useStore,
-  type Agent as ViewAgent,
-} from './store.js';
+import { commands, getStore, useStore } from './store.js';
 import type { Agent as CanonicalAgent, HarnessRule } from '../../../shared/state.js';
 
-// ─── Accent palette (mirrors design.pen tokens) ──────────────────────────
+// ─── Identity tokens — Pass 4 anti-slop ──────────────────────────────────
 
 const ACCENT_HEX = {
-  maya: '#A6E1FF',
-  jin: '#FFB37A',
-  cleo: '#B6FFA6',
-  wren: '#E6A6FF',
+  maya: '#E07856',
+  jin: '#4A9E9C',
+  cleo: '#C99550',
+  wren: '#9670A0',
 } as const satisfies Record<string, `#${string}`>;
 
-// ─── Timeline (ms) ───────────────────────────────────────────────────────
+// ─── Timeline shape ──────────────────────────────────────────────────────
 
 export interface MixtapeTimeline {
-  /** Strip enters `speaking` (dispatch narration) at this offset. */
-  dispatchSpeakingAt: number;
-  /** Agents land as spawning. */
-  spawnAt: number;
-  /** Agents flip to working + strip enters hive. */
-  workingAt: number;
-  /** First micro-trail update. */
-  firstTrailAt: number;
-  /** Cadence of subsequent trail updates. */
-  trailIntervalMs: number;
-  /** Jin transitions to blocked. */
+  /** Initial seed dispatch — agents land as `working`. */
+  dispatchAt: number;
+  /** First trail-update batch (T+1:15 in demo-timeline.md). */
+  firstTrailBatchAt: number;
+  /** Second trail-update batch (T+1:30). */
+  secondTrailBatchAt: number;
+  /** Jin transitions to blocked — fires the escalation event. */
   jinBlockAt: number;
-  /** After resolve, time before agents start completing. */
-  postResolveWorkMs: number;
-  /** Spacing between agent completions (in order Wren → Cleo → Jin → Maya). */
-  completionStaggerMs: number;
+  /** Absolute timeline marks for the four completions. */
+  cleoDoneAt: number;
+  wrenDoneAt: number;
+  jinDoneAt: number;
+  mayaDoneAt: number;
 }
 
-const COMPRESSED: MixtapeTimeline = {
-  dispatchSpeakingAt: 0,
-  spawnAt: 600,
-  workingAt: 1800,
-  firstTrailAt: 5000,
-  trailIntervalMs: 4500,
-  jinBlockAt: 18000,
-  // post-resolve: 6s of work, then completions every 2.5s
-  postResolveWorkMs: 6000,
-  completionStaggerMs: 2500,
+/**
+ * Canonical timeline — mirrors docs/demo-timeline.md exactly, shifted by
+ * −55s so the first dispatch is sim_T+0. (The doc treats T+0 as the user's
+ * first utterance; dispatch happens at T+0:55.)
+ */
+const EXTENDED: MixtapeTimeline = {
+  dispatchAt: 0,
+  firstTrailBatchAt: 20_000, // 1:15 − 0:55
+  secondTrailBatchAt: 35_000, // 1:30 − 0:55
+  jinBlockAt: 50_000, // 1:45 − 0:55
+  cleoDoneAt: 140_000, // 3:15 − 0:55
+  wrenDoneAt: 155_000, // 3:30 − 0:55
+  jinDoneAt: 175_000, // 3:50 − 0:55
+  mayaDoneAt: 195_000, // 4:10 − 0:55
 };
 
-const EXTENDED: MixtapeTimeline = {
-  dispatchSpeakingAt: 0,
-  spawnAt: 600,
-  workingAt: 1500,
-  firstTrailAt: 8000,
-  trailIntervalMs: 9000,
-  jinBlockAt: 90_000,
-  postResolveWorkMs: 30_000,
-  completionStaggerMs: 12_000,
+/**
+ * Dev/hackathon-compressed timeline — fits inside ~60s for fast iteration.
+ */
+const COMPRESSED: MixtapeTimeline = {
+  dispatchAt: 0,
+  firstTrailBatchAt: 5_000,
+  secondTrailBatchAt: 12_000,
+  jinBlockAt: 20_000,
+  cleoDoneAt: 40_000,
+  wrenDoneAt: 45_000,
+  jinDoneAt: 50_000,
+  mayaDoneAt: 55_000,
 };
 
 // ─── Narrative copy ──────────────────────────────────────────────────────
@@ -87,16 +84,12 @@ const EXTENDED: MixtapeTimeline = {
 interface AgentPlan {
   id: 'maya' | 'jin' | 'cleo' | 'wren';
   name: string;
-  role: string;
-  view: ViewAgent['accent'];
-  /** Initial micro-text. */
+  role: 'Frontend' | 'Backend' | 'Data' | 'Design';
   task: string;
-  /** Initial files breadcrumb (view) / recentFiles (canonical). */
-  files: string;
   filesArr: string[];
-  /** Trail updates (cycled in order). */
+  /** Trail messages cycled at each batch tick. */
   trail: string[];
-  /** Completion summary. */
+  /** Final summary on completion. */
   done: string;
   doneFiles: string;
   doneFilesArr: string[];
@@ -106,52 +99,43 @@ const PLAN: AgentPlan[] = [
   {
     id: 'maya',
     name: 'Maya',
-    role: 'FRONTEND',
-    view: 'maya',
+    role: 'Frontend',
     task: 'wiring the flip animation',
-    files: 'PlaylistCard.tsx · CoverArt.tsx',
     filesArr: ['app/PlaylistCard.tsx', 'app/CoverArt.tsx'],
     trail: [
-      'PlaylistCard.tsx scaffolded',
-      'flip transition at 220ms ease',
-      'haptic on tap wired',
-      'mobile breakpoint tuned',
+      'tuning the spring physics',
+      'writing CoverArt SVG',
+      'PlaylistCard ready to flip',
     ],
-    done: 'PlaylistCard delivered',
+    done: 'PlaylistCard ready to flip',
     doneFiles: '4 files · 184 lines',
     doneFilesArr: ['app/PlaylistCard.tsx', 'app/CoverArt.tsx', 'app/flip.css'],
   },
   {
     id: 'jin',
     name: 'Jin',
-    role: 'BACKEND',
-    view: 'jin',
-    task: 'sketching /api/generate',
-    files: 'lib/generator.ts',
+    role: 'Backend',
+    task: 'POST /api/generate routed',
     filesArr: ['lib/generator.ts'],
     trail: [
-      'POST /api/generate routed',
-      'rate-limit middleware in place',
-      'streaming response wired',
-      'final integration with Stripe',
+      'writing mock-track seed',
+      'tying generator to seed list',
+      'wiring response envelope',
     ],
-    done: 'generate route shipped',
+    done: 'generate route + mock seed shipped',
     doneFiles: '2 files · 96 lines',
     doneFilesArr: ['app/api/generate/route.ts', 'lib/billing.ts'],
   },
   {
     id: 'cleo',
     name: 'Cleo',
-    role: 'DATA',
-    view: 'cleo',
-    task: 'writing Mixtape schema',
-    files: 'lib/schema.ts',
+    role: 'Data',
+    task: 'Mixtape schema written',
     filesArr: ['lib/schema.ts'],
     trail: [
-      'Mixtape entity drafted',
-      'Track relation modeled',
-      'zod validators added',
-      'migration generated',
+      'file-backed store going',
+      'index on vibe field',
+      'schema + store committed',
     ],
     done: 'schema + store committed',
     doneFiles: '3 files · 71 lines',
@@ -160,37 +144,57 @@ const PLAN: AgentPlan[] = [
   {
     id: 'wren',
     name: 'Wren',
-    role: 'DESIGN',
-    view: 'wren',
-    task: 'tuning holographic tokens',
-    files: 'tailwind.config.ts · themes.ts',
+    role: 'Design',
+    task: 'matte tokens locked',
     filesArr: ['tailwind.config.ts', 'app/themes.ts'],
     trail: [
-      'palette locked',
-      'matte direction adopted',
+      'cassette palette tuning',
       'micro-motion easing dialed',
-      'theme tokens shipped',
+      'cassette tokens shipped',
     ],
-    done: 'theme tokens shipped',
+    done: 'cassette tokens shipped',
     doneFiles: '2 files · 48 lines',
     doneFilesArr: ['tailwind.config.ts', 'app/themes.ts'],
   },
 ];
 
-const JIN_BLOCKER =
-  "Stripe key — should I mock the gateway, or wait for production keys?";
+const JIN_BLOCKER_TEXT = 'Stripe staging API key not in env';
+const JIN_SUGGESTED_QUESTION =
+  'Want me to wire real keys, or have Jin generate plausible mock tracks from a local seed list?';
 
-// Completion order: smallest scope first so the hive visibly drains.
-const COMPLETION_ORDER: AgentPlan['id'][] = ['wren', 'cleo', 'jin', 'maya'];
+// ─── Escalation event contract ───────────────────────────────────────────
+
+/**
+ * Payload for the `director:escalation` CustomEvent. The orchestration
+ * layer listens on `window` and translates this into a server-initiated
+ * Realtime utterance (per docs/research/gpt-realtime-2.md §8).
+ */
+export interface EscalationDetail {
+  agent_id: string;
+  blocker: string;
+  suggested_question: string;
+}
+
+export const ESCALATION_EVENT = 'director:escalation';
+
+function dispatchEscalation(detail: EscalationDetail): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.dispatchEvent(new CustomEvent<EscalationDetail>(ESCALATION_EVENT, { detail }));
+  } catch (err) {
+    console.warn('[sim] failed to dispatch escalation event', err);
+  }
+}
 
 // ─── Module state ────────────────────────────────────────────────────────
 
 interface DemoHandle {
+  timeline: MixtapeTimeline;
   timers: Array<ReturnType<typeof setTimeout>>;
   intervals: Array<ReturnType<typeof setInterval>>;
   startedAt: number;
   awaitingResolution: boolean;
-  resolve: (input: string) => void;
+  resolveExternal: (input: string) => void;
   stopped: boolean;
 }
 
@@ -203,7 +207,7 @@ function planToCanonical(p: AgentPlan, status: CanonicalAgent['status']): Canoni
   return {
     id: p.id,
     name: p.name,
-    role: capitalize(p.role) as CanonicalAgent['role'],
+    role: p.role,
     accentColor: ACCENT_HEX[p.id],
     status,
     currentTask: p.task,
@@ -217,22 +221,6 @@ function planToCanonical(p: AgentPlan, status: CanonicalAgent['status']): Canoni
   };
 }
 
-function planToView(p: AgentPlan, status: ViewAgent['status'], task?: string, files?: string): ViewAgent {
-  return {
-    id: p.id,
-    name: p.name,
-    role: p.role,
-    accent: p.view,
-    status,
-    trail: task ?? p.task,
-    files: files ?? p.files,
-  };
-}
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
-}
-
 function appendNarration(text: string, phase: 'commentary' | 'final_answer'): void {
   commands.appendTranscript({
     id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -243,11 +231,7 @@ function appendNarration(text: string, phase: 'commentary' | 'final_answer'): vo
   });
 }
 
-function schedule(
-  handle: DemoHandle,
-  fn: () => void,
-  delayMs: number,
-): void {
+function schedule(handle: DemoHandle, fn: () => void, delayMs: number): void {
   if (handle.stopped) return;
   handle.timers.push(setTimeout(fn, delayMs));
 }
@@ -264,32 +248,25 @@ function clearHandle(handle: DemoHandle): void {
 
 export interface StartMixtapeDemoOptions {
   /**
-   * Use the compressed (~60s) timeline ideal for a hackathon demo.
-   * `false` runs the canonical 3–4 minute timeline (T+90s block etc.).
+   * `true` (default) — compressed ~60s timeline for dev iteration.
+   * `false`          — canonical demo-timeline.md schedule (≈3:15 long).
    */
   compressed?: boolean;
-  /**
-   * Goal pill to display in the strip. Defaults to "Mixtape app".
-   */
+  /** Goal pill displayed in the strip. */
   goal?: string;
-  /**
-   * Pre-seed a harness rule that the demo would have produced. Defaults to
-   * "no gradients ever — user said so during checkout aesthetic review".
-   */
+  /** Pre-seed a harness rule. Pass `null` to skip. */
   seedHarness?: HarnessRule | null;
   /**
-   * Optional callback when Jin blocks. Receives the blocker text and a
-   * `resolve(input)` closure. Useful for the UI to capture a user typed
-   * answer and route it back into the simulator.
+   * If `true` (default), startMixtapeDemo() seeds the 4 agents itself.
+   * Set `false` when the tool-router is going to drive `dispatch_agent_mock`
+   * calls — the sim then only runs the timer, and the router does the
+   * agent additions.
    */
+  seedAgents?: boolean;
+  /** Optional handler invoked at the moment Jin blocks. */
   onBlocked?: (blocker: string, resolve: (input: string) => void) => void;
 }
 
-/**
- * Begin the Mixtape demo. Safe to call multiple times — a running demo is
- * stopped and replaced. Returns `{ stop, resolve }` so callers can stop
- * early or unblock Jin programmatically.
- */
 export function startMixtapeDemo(
   options: StartMixtapeDemoOptions = {},
 ): { stop: () => void; resolve: (input: string) => void } {
@@ -300,13 +277,13 @@ export function startMixtapeDemo(
 
   const timeline = options.compressed === false ? EXTENDED : COMPRESSED;
   const goal = options.goal ?? 'Mixtape app';
-  const view = useDirectorStore.getState();
+  const seedAgents = options.seedAgents !== false;
   const seedHarness =
     options.seedHarness === undefined
       ? ({
           id: `rule-${Date.now()}`,
-          rule: 'no gradients ever',
-          why: 'user said so during checkout aesthetic review',
+          rule: 'Cards use cassette material — translucent amber, vintage warmth',
+          why: 'User picked cassette during card-material decision',
           timestamp: Date.now(),
           scope: 'project',
           source: 'user-utterance',
@@ -314,23 +291,20 @@ export function startMixtapeDemo(
       : options.seedHarness;
 
   const handle: DemoHandle = {
+    timeline,
     timers: [],
     intervals: [],
     startedAt: Date.now(),
     awaitingResolution: false,
-    resolve: () => {
+    resolveExternal: () => {
       /* replaced when block fires */
     },
     stopped: false,
   };
   active = handle;
 
-  // Reset stores into a clean demo state.
-  view.setGoal(goal);
-  view.setStripState('dormant');
-  view.setAgents([]);
+  // ── Reset store into a clean demo state ──────────────────────────────
   commands.setGoal(goal);
-  // Canonical: hard reset agents (skip illegal-transition warns).
   useStore.setState({
     agents: {},
     agentOrder: [],
@@ -340,106 +314,73 @@ export function startMixtapeDemo(
     commands.addHarnessRule(seedHarness);
   }
 
-  // ── T+0: dispatch narration ────────────────────────────────────────
+  // ── T+0: dispatch the four agents (or skip if router will drive) ────
   schedule(
     handle,
     () => {
-      view.setStripState('speaking');
-      // Canonical setSpeaking requires being out of speaking/escalating —
-      // we're in dormant so it's fine.
-      const itemId = `item-dispatch-${Date.now()}`;
+      if (seedAgents) {
+        for (const p of PLAN) {
+          commands.addAgent(planToCanonical(p, 'working'));
+        }
+      }
       try {
-        getStore().setSpeaking(itemId, 'commentary');
+        getStore().enterHive(PLAN[0]?.id ?? null);
       } catch {
-        /* swallow — sim is non-fatal */
+        /* swallow */
       }
       appendNarration(
         'Dispatching Maya on the flip card, Jin on the API, Cleo on the schema, Wren on theme tokens.',
         'commentary',
       );
     },
-    timeline.dispatchSpeakingAt,
+    timeline.dispatchAt,
   );
 
-  // ── T+spawnAt: agents appear in spawning state ─────────────────────
+  // ── T+1:15 (or +5s compressed): first trail batch ─────────────────────
+  schedule(
+    handle,
+    () => runTrailBatch(0),
+    timeline.firstTrailBatchAt,
+  );
+
+  // ── T+1:30 (or +12s compressed): second trail batch ───────────────────
+  schedule(
+    handle,
+    () => runTrailBatch(1),
+    timeline.secondTrailBatchAt,
+  );
+
+  // ── T+1:45 (or +20s compressed): Jin blocks → escalation ──────────────
   schedule(
     handle,
     () => {
-      const viewAgents = PLAN.map((p) => planToView(p, 'working'));
-      view.setAgents(viewAgents);
-      for (const p of PLAN) {
-        commands.addAgent(planToCanonical(p, 'spawning'));
-      }
-    },
-    timeline.spawnAt,
-  );
-
-  // ── T+workingAt: all working + strip → hive ────────────────────────
-  schedule(
-    handle,
-    () => {
-      view.setStripState('hive');
-      try {
-        getStore().enterHive(PLAN[0]?.id ?? null);
-      } catch {
-        /* swallow */
-      }
-      for (const p of PLAN) {
-        commands.updateAgent(p.id, { status: 'working' });
-      }
-      const vAgents = useDirectorStore.getState().agents;
-      useDirectorStore.setState({
-        agents: vAgents.map((a) => ({ ...a, status: 'working' })),
-      });
-    },
-    timeline.workingAt,
-  );
-
-  // ── Periodic trail updates ─────────────────────────────────────────
-  const trailIndex: Record<string, number> = { maya: 0, jin: 0, cleo: 0, wren: 0 };
-  const startTrails = (): void => {
-    if (handle.stopped) return;
-    const tick = (): void => {
-      if (handle.stopped) return;
-      for (const p of PLAN) {
-        // Skip blocked Jin; the trail freezes on the blocker.
-        const view = useDirectorStore.getState().agents.find((a) => a.id === p.id);
-        if (view?.status === 'blocked' || view?.status === 'done') continue;
-        const i = trailIndex[p.id]!;
-        const next = p.trail[i % p.trail.length]!;
-        trailIndex[p.id] = i + 1;
-        useDirectorStore.getState().patchAgent(p.id, { trail: next });
-        commands.updateAgent(p.id, { currentTask: next });
-      }
-    };
-    schedule(handle, () => {
-      tick();
-      handle.intervals.push(setInterval(tick, timeline.trailIntervalMs));
-    }, timeline.firstTrailAt);
-  };
-  startTrails();
-
-  // ── T+jinBlockAt: Jin blocks ───────────────────────────────────────
-  schedule(
-    handle,
-    () => {
-      // View-model
-      useDirectorStore.getState().patchAgent('jin', {
-        status: 'blocked',
-        trail: 'awaiting Stripe key direction',
-        files: '',
-      });
-      useDirectorStore.getState().setStripState('escalating');
-      // Canonical
-      commands.blockAgent('jin', JIN_BLOCKER);
-      appendNarration(`Jin's blocked — ${JIN_BLOCKER}`, 'commentary');
+      // Only block if Jin exists in the store. If the router never
+      // dispatched Jin we silently skip — the demo just won't have
+      // an escalation beat.
+      const jin = useStore.getState().agents['jin'];
+      if (!jin) return;
+      commands.blockAgent('jin', JIN_BLOCKER_TEXT);
+      appendNarration(`Jin's blocked — ${JIN_BLOCKER_TEXT}.`, 'commentary');
 
       handle.awaitingResolution = true;
-      handle.resolve = (input: string) => resolveJinInternal(handle, input, timeline);
-      options.onBlocked?.(JIN_BLOCKER, handle.resolve);
+      handle.resolveExternal = (input: string) =>
+        resolveJinInternal(handle, input);
+      options.onBlocked?.(JIN_BLOCKER_TEXT, handle.resolveExternal);
+
+      dispatchEscalation({
+        agent_id: 'jin',
+        blocker: JIN_BLOCKER_TEXT,
+        suggested_question: JIN_SUGGESTED_QUESTION,
+      });
     },
     timeline.jinBlockAt,
   );
+
+  // ── Completions on the canonical schedule ─────────────────────────────
+  scheduleCompletion(handle, 'cleo', timeline.cleoDoneAt);
+  scheduleCompletion(handle, 'wren', timeline.wrenDoneAt);
+  scheduleCompletion(handle, 'jin', timeline.jinDoneAt);
+  scheduleCompletion(handle, 'maya', timeline.mayaDoneAt);
 
   return {
     stop: () => {
@@ -447,114 +388,105 @@ export function startMixtapeDemo(
       clearHandle(handle);
     },
     resolve: (input: string) => {
-      if (handle.awaitingResolution) handle.resolve(input);
+      if (handle.awaitingResolution) handle.resolveExternal(input);
     },
   };
 }
 
-/**
- * Unblock Jin with a typed-or-spoken user answer. No-op if there is no
- * active demo or Jin isn't currently blocked.
- */
 export function resolveJinBlocker(input: string): void {
   if (!active) return;
   if (!active.awaitingResolution) return;
-  active.resolve(input);
+  active.resolveExternal(input);
 }
 
-/**
- * Returns true while the demo is paused waiting for the user to unblock Jin.
- */
 export function isAwaitingResolution(): boolean {
   return Boolean(active?.awaitingResolution);
 }
 
-/**
- * Stop any running demo. Safe to call when nothing is running.
- */
 export function stopMixtapeDemo(): void {
   if (!active) return;
   clearHandle(active);
   active = null;
 }
 
+/**
+ * True iff the sim is currently driving the demo. Tool-router uses this to
+ * detect whether to call `startMixtapeDemo({seedAgents: false})` on the
+ * first `dispatch_agent_mock`.
+ */
+export function isDemoRunning(): boolean {
+  return Boolean(active && !active.stopped);
+}
+
 // ─── Internals ───────────────────────────────────────────────────────────
 
-function resolveJinInternal(
+function runTrailBatch(batchIndex: number): void {
+  for (const p of PLAN) {
+    const a = useStore.getState().agents[p.id];
+    if (!a) continue;
+    if (a.status === 'done' || a.status === 'killed' || a.status === 'blocked') {
+      continue;
+    }
+    const message = p.trail[batchIndex % p.trail.length];
+    if (!message) continue;
+    commands.updateAgent(p.id, { currentTask: message });
+  }
+}
+
+function scheduleCompletion(
   handle: DemoHandle,
-  input: string,
-  timeline: MixtapeTimeline,
+  id: AgentPlan['id'],
+  atMs: number,
 ): void {
+  schedule(handle, () => completeIfReady(id), atMs);
+}
+
+function completeIfReady(id: AgentPlan['id']): void {
+  const agent = useStore.getState().agents[id];
+  if (!agent) return;
+  if (agent.status === 'done' || agent.status === 'killed') return;
+  // Jin only completes when he's been resolved off the block.
+  if (agent.status === 'blocked' || agent.status === 'error') return;
+
+  const plan = PLAN.find((p) => p.id === id);
+  if (!plan) return;
+
+  commands.completeAgent(id, plan.done);
+  commands.updateAgent(id, { recentFiles: plan.doneFilesArr.slice(-3) });
+  appendNarration(`${plan.name}: ${plan.done}.`, 'commentary');
+
+  // After the last completion, let the hive hold for two beats then dorm.
+  const everyoneDone = Object.values(useStore.getState().agents).every(
+    (a) => a.status === 'done' || a.status === 'killed',
+  );
+  if (everyoneDone) {
+    setTimeout(() => {
+      try {
+        getStore().exitHive();
+      } catch {
+        /* swallow */
+      }
+      appendNarration('All shipped.', 'final_answer');
+    }, 1500);
+  }
+}
+
+function resolveJinInternal(handle: DemoHandle, input: string): void {
   if (handle.stopped) return;
   handle.awaitingResolution = false;
 
   appendNarration(`Got it — ${input}. Jin, continue.`, 'final_answer');
 
-  // Persist the user's call as a harness rule (the answer often is one).
   commands.addHarnessRule({
     id: `rule-${Date.now()}-jin`,
-    rule: input,
-    why: 'user resolved blocker',
+    rule:
+      'For demo-tier persistence, prefer mock data over external API keys',
+    why: `User chose "${input}" during Jin's Stripe blocker`,
     timestamp: Date.now(),
     scope: 'task',
     source: 'user-utterance',
   });
 
-  // View-model: Jin back to working, strip back to hive.
-  useDirectorStore.getState().patchAgent('jin', {
-    status: 'working',
-    trail: 'final integration with Stripe',
-    files: 'lib/billing.ts',
-  });
-  useDirectorStore.getState().setStripState('hive');
-  // Canonical
-  commands.resolveAgent('jin', 'final integration with Stripe');
-
-  // ── Schedule completions ──────────────────────────────────────────
-  schedule(
-    handle,
-    () => beginCompletions(handle, timeline),
-    timeline.postResolveWorkMs,
-  );
-}
-
-function beginCompletions(handle: DemoHandle, timeline: MixtapeTimeline): void {
-  if (handle.stopped) return;
-
-  COMPLETION_ORDER.forEach((id, idx) => {
-    schedule(
-      handle,
-      () => {
-        if (handle.stopped) return;
-        const plan = PLAN.find((p) => p.id === id)!;
-        useDirectorStore.getState().patchAgent(plan.id, {
-          status: 'done',
-          trail: plan.done,
-          files: plan.doneFiles,
-        });
-        commands.completeAgent(plan.id, plan.done);
-        commands.updateAgent(plan.id, { recentFiles: plan.doneFilesArr.slice(-3) });
-        appendNarration(`${plan.name}: ${plan.done}.`, 'commentary');
-
-        // After the last one, fall back to dormant.
-        if (idx === COMPLETION_ORDER.length - 1) {
-          schedule(
-            handle,
-            () => {
-              if (handle.stopped) return;
-              useDirectorStore.getState().setStripState('dormant');
-              try {
-                getStore().exitHive();
-              } catch {
-                /* swallow */
-              }
-              appendNarration('All shipped.', 'final_answer');
-            },
-            1200,
-          );
-        }
-      },
-      idx * timeline.completionStaggerMs,
-    );
-  });
+  commands.resolveAgent('jin', 'injecting mock track seed');
+  commands.updateAgent('jin', { recentFiles: ['lib/billing.ts'] });
 }
