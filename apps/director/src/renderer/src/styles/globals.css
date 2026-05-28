@@ -1,14 +1,18 @@
 @import 'tailwindcss';
 
-/* Inter — variable */
+/* Inter — variable text faces */
 @import '@fontsource/inter/400.css';
 @import '@fontsource/inter/500.css';
 @import '@fontsource/inter/600.css';
 
+/* JetBrains Mono — code + breadcrumbs */
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+
 /* ─────────────────────────────────────────────────────────────────────────
- * Design tokens (from docs/ux-design.md Pass 5).
- * Exposed as CSS custom properties AND mapped into the Tailwind v4 theme via
- * @theme so utilities like `text-text-primary`, `bg-surface-base`, etc. work.
+ * Design tokens — docs/ux-design.md Pass 5.
+ * CSS custom properties first, then mapped into Tailwind v4 @theme so
+ * utilities like `text-text-primary`, `bg-status-working`, `font-mono` work.
  * ───────────────────────────────────────────────────────────────────────── */
 
 :root {
@@ -46,12 +50,17 @@
   --ease-smooth: cubic-bezier(0.32, 0.72, 0, 1);
 
   /* Geometry */
+  --radius-strip-small: 6px;
   --radius-strip: 14px;
   --radius-canvas: 22px;
 
-  /* Dormant pulse tint — matches design.pen / Strip / Dormant.
-     Soft blue-cyan (#6E94E8 family), heavily translucent at edges,
-     stronger at midpoint. */
+  /* Strip shadow tokens */
+  --shadow-strip: 0 8px 32px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.25);
+  --shadow-listening: 0 0 32px rgba(88, 214, 141, 0.2);
+  --shadow-thinking: 0 0 40px rgba(110, 148, 232, 0.3);
+  --shadow-blocked: 0 0 40px rgba(232, 169, 92, 0.25);
+
+  /* Dormant pulse tint — soft blue-cyan, midpoint stronger, edges near-zero. */
   --pulse-mid: rgba(110, 148, 232, 0.55);
   --pulse-soft: rgba(236, 236, 240, 0.04);
   --pulse-glow: rgba(110, 148, 232, 0.28);
@@ -64,22 +73,28 @@
   --color-text-secondary: var(--text-secondary);
   --color-text-tertiary: var(--text-tertiary);
   --color-border-subtle: var(--border-subtle);
+
   --color-status-working: var(--status-working);
   --color-status-blocked: var(--status-blocked);
   --color-status-thinking: var(--status-thinking);
   --color-status-done: var(--status-done);
   --color-status-error: var(--status-error);
+
   --color-accent-maya: var(--accent-maya);
   --color-accent-jin: var(--accent-jin);
   --color-accent-cleo: var(--accent-cleo);
   --color-accent-wren: var(--accent-wren);
 
+  --radius-strip-small: 6px;
   --radius-strip: 14px;
   --radius-canvas: 22px;
 
   --font-sans:
     'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
     Arial, sans-serif;
+  --font-mono:
+    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+    'Courier New', monospace;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -111,29 +126,42 @@ body {
   overflow: hidden;
 }
 
+/* Allow click-through on interactive elements (e.g. dev switcher buttons). */
+button,
+input,
+a,
+[data-no-drag] {
+  -webkit-app-region: no-drag;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────
- * Strip — dormant
- *
- * Dormant strip = 12px wide × 180px tall pill with vertical gradient pulse
- * (transparent → blue mid → transparent). Source: design.pen / Strip / Dormant.
+ * Strip surfaces — small variants (Dormant / Listening) are 12px pills with
+ * a tight 6px radius; expanded variants (Thinking / Hive) use 14px.
  * ───────────────────────────────────────────────────────────────────────── */
 
 .strip-root {
   position: relative;
   width: 100%;
   height: 100%;
-  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.strip-small {
+  width: 12px;
+  height: 180px;
+  border-radius: var(--radius-strip-small);
   border: 0.5px solid var(--border-subtle);
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.35),
-    0 2px 6px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-strip);
   overflow: hidden;
+  position: relative;
 }
 
 .strip-pulse {
   position: absolute;
   inset: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-strip-small);
   background: linear-gradient(
     to bottom,
     var(--pulse-soft) 0%,
