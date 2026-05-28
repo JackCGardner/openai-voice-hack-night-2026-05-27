@@ -17,6 +17,7 @@
  */
 
 import { buildSessionUpdate, type RealtimeEphemeralToken } from '../../../shared/realtime.js';
+import type { ToolCallRequest, ToolName } from '../../../shared/ipc.js';
 
 const SDP_URL = 'https://api.openai.com/v1/realtime/calls';
 
@@ -48,6 +49,9 @@ export class RealtimeClient {
     error: new Set(),
   };
   private _status: RealtimeClientStatus = 'idle';
+  /** call_id → { name, itemId } captured from response.output_item.added so
+   *  we can resolve names when only `function_call_arguments.done` fires. */
+  private pendingCalls: Map<string, { name: string; itemId: string }> = new Map();
 
   get status(): RealtimeClientStatus {
     return this._status;
@@ -79,6 +83,104 @@ export class RealtimeClient {
     if (this._status === next) return;
     this._status = next;
     this.emit('status', next);
+  }
+
+  /**
+   * Server-event dispatcher. Pulls out:
+   *   - lifecycle (session.created/updated, error) → console
+   *   - function-call lifecycle (output_item.added with function_call →
+   *     remember name; function_call_arguments.done → dispatch over IPC)
+   *   - barge-in (input_audio_buffer.speech_started → response.cancel)
+   * Anything we don't special-case falls through to listeners via emit('event').
+   */
+  private handleServerEvent(parsed: Record<string, unknown>): void {
+    const type = parsed.type as string | undefined;
+    if (!type) return;
+
+    if (type === 'session.created' || type === 'session.updated' || type === 'error') {
+      console.log(`[realtime] ${type}`, parsed);
+    }
+
+    // Remember name + item_id when a function_call item appears, so we can
+    // resolve the name later when only `.done` fires with call_id.
+    if (type === 'response.output_item.added') {
+      const item = parsed.item as
+        | { type?: string; name?: string; call_id?: string; id?: string }
+        | undefined;
+      if (item?.type === 'function_call' && item.call_id && item.name) {
+        this.pendingCalls.set(item.call_id, {
+          name: item.name,
+          itemId: item.id ?? '',
+        });
+      }
+    }
+
+    // Dispatch fully-assembled function call.
+    if (type === 'response.function_call_arguments.done') {
+      const callId = parsed.call_id as string | undefined;
+      const argsRaw = parsed.arguments as string | undefined;
+      const nameFromEvent = parsed.name as string | undefined; // some shapes include name here
+      if (callId) {
+        const pending = this.pendingCalls.get(callId);
+        const name = nameFromEvent ?? pending?.name;
+        const itemId = pending?.itemId ?? '';
+        if (!name) {
+          console.warn(`[realtime] function_call_arguments.done without name (callId=${callId})`);
+          return;
+        }
+        let args: unknown = {};
+        try {
+          args = argsRaw ? JSON.parse(argsRaw) : {};
+        } catch (err) {
+          console.warn('[realtime] failed to parse tool arguments JSON', err, argsRaw);
+        }
+        this.pendingCalls.delete(callId);
+        void this.dispatchTool({ callId, name: name as ToolName, args, realtimeItemId: itemId });
+      }
+    }
+
+    // (W1.barge wires input_audio_buffer.speech_started → response.cancel
+    //  in a follow-up commit.)
+  }
+
+  /**
+   * Forward a model tool call to main via IPC, wait for the stub result,
+   * then push it back into the conversation as a `function_call_output` +
+   * `response.create`. W3/W4 will replace the stub with real handlers.
+   */
+  private async dispatchTool(req: ToolCallRequest): Promise<void> {
+    console.log(`[realtime] tool.call → main name=${req.name} callId=${req.callId}`);
+    const bridge = window.director;
+    if (!bridge) {
+      console.warn('[realtime] no preload bridge; dropping tool call');
+      return;
+    }
+    try {
+      const result = await bridge.tool.call(req);
+      // Always feed *something* back so the model isn't left hanging.
+      const output = result.ok ? result.output : { error: result.error };
+      this.send({
+        type: 'conversation.item.create',
+        item: {
+          type: 'function_call_output',
+          call_id: req.callId,
+          output: JSON.stringify(output),
+        },
+      });
+      this.send({ type: 'response.create' });
+    } catch (err) {
+      console.error('[realtime] tool dispatch failed', err);
+      // Best-effort error injection so the model can continue.
+      this.send({
+        type: 'conversation.item.create',
+        item: {
+          type: 'function_call_output',
+          call_id: req.callId,
+          output: JSON.stringify({ error: String(err) }),
+        },
+      });
+      this.send({ type: 'response.create' });
+    }
   }
 
   /**
@@ -153,12 +255,7 @@ export class RealtimeClient {
       dc.onmessage = (evt) => {
         try {
           const parsed = JSON.parse(evt.data) as Record<string, unknown>;
-          const type = parsed.type as string | undefined;
-          // Surface the lifecycle-significant events explicitly so we can
-          // see in the console that the session is alive.
-          if (type === 'session.created' || type === 'session.updated' || type === 'error') {
-            console.log(`[realtime] ${type}`, parsed);
-          }
+          this.handleServerEvent(parsed);
           this.emit('event', parsed);
         } catch (err) {
           console.warn('[realtime] non-JSON event', err, evt.data);

@@ -302,6 +302,20 @@ export interface DirectorBridge {
   realtime: {
     mintToken: (req?: RealtimeSessionRequest) => Promise<RealtimeEphemeralToken>;
   };
+  /** Tool dispatch (W1.tools). The renderer with the data channel
+   *  forwards function calls into main, which re-broadcasts to every
+   *  renderer (Strip + Canvas) and returns a result. W3/W4 will plug in
+   *  real handlers; for now main returns an immediate `{ok:true}` stub. */
+  tool: {
+    call: (req: ToolCallRequest) => Promise<ToolCallResponse>;
+    /** Subscribe to broadcast `tool.call` events fired by main when
+     *  the realtime layer dispatches. Handlers in any window can pick
+     *  these up to render UI / kick off side-effects. */
+    onCall: (cb: (req: ToolCallRequest) => void) => () => void;
+    /** Subscribe to async tool results (e.g. agent completions injected
+     *  from main → renderer with the peer connection). */
+    onResult: (cb: (payload: ToolResultPayload) => void) => () => void;
+  };
 }
 
 declare global {

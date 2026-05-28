@@ -4,6 +4,9 @@ import {
   type DirectorBridge,
   type DormantState,
   type HotkeyListener,
+  type ToolCallRequest,
+  type ToolCallResponse,
+  type ToolResultPayload,
 } from '../shared/ipc.js';
 import type {
   RealtimeEphemeralToken,
@@ -25,6 +28,21 @@ const api: DirectorBridge = {
   realtime: {
     mintToken(req?: RealtimeSessionRequest): Promise<RealtimeEphemeralToken> {
       return ipcRenderer.invoke(IpcChannel.RealtimeMintToken, req);
+    },
+  },
+  tool: {
+    call(req: ToolCallRequest): Promise<ToolCallResponse> {
+      return ipcRenderer.invoke(IpcChannel.ToolCall, req);
+    },
+    onCall(cb) {
+      const listener = (_evt: unknown, req: ToolCallRequest): void => cb(req);
+      ipcRenderer.on(IpcChannel.ToolCall, listener);
+      return () => ipcRenderer.removeListener(IpcChannel.ToolCall, listener);
+    },
+    onResult(cb) {
+      const listener = (_evt: unknown, payload: ToolResultPayload): void => cb(payload);
+      ipcRenderer.on(IpcChannel.ToolResult, listener);
+      return () => ipcRenderer.removeListener(IpcChannel.ToolResult, listener);
     },
   },
 };

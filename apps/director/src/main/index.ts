@@ -3,7 +3,12 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { config as loadDotenv } from 'dotenv';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { IpcChannel, type DormantState } from '../shared/ipc.js';
+import {
+  IpcChannel,
+  type DormantState,
+  type ToolCallRequest,
+  type ToolCallResponse,
+} from '../shared/ipc.js';
 import type { RealtimeEphemeralToken, RealtimeSessionRequest } from '../shared/realtime.js';
 import { mintEphemeralToken } from './realtime.js';
 import {
@@ -266,6 +271,39 @@ function registerIpcHandlers(): void {
         `[director] minted realtime token model=${token.model} expires_at=${token.expiresAt}`,
       );
       return token;
+    },
+  );
+
+  // ─── tool.call (W1.tools) ────────────────────────────────────────────
+  // The renderer that owns the WebRTC peer forwards every model tool
+  // call into main. Main re-broadcasts to all renderers (Strip + Canvas)
+  // so any window can render UI / kick off side-effects. The handler
+  // returns immediately with a stub `{ok: true}` — W3/W4 swap in real
+  // tool execution later.
+  ipcMain.handle(
+    IpcChannel.ToolCall,
+    async (evt, req: ToolCallRequest): Promise<ToolCallResponse> => {
+      const startedAt = Date.now();
+      console.log(`[director] tool.call name=${req.name} callId=${req.callId}`);
+
+      // Broadcast to every other renderer (skip the sender). The sender
+      // already has the request locally; rebroadcasting back risks loops.
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (win.webContents.id === evt.sender.id) continue;
+        if (win.isDestroyed()) continue;
+        try {
+          win.webContents.send(IpcChannel.ToolCall, req);
+        } catch (err) {
+          console.warn('[director] tool.call broadcast failed', err);
+        }
+      }
+
+      return {
+        ok: true,
+        callId: req.callId,
+        output: {},
+        latencyMs: Date.now() - startedAt,
+      };
     },
   );
 }
