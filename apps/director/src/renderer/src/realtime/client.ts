@@ -80,6 +80,17 @@ export class RealtimeClient {
    *  we can resolve names when only `function_call_arguments.done` fires. */
   private pendingCalls: Map<string, { name: string; itemId: string }> = new Map();
 
+  // ─── § idle-teardown (cost control) ────────────────────────────────────
+  // The Realtime API bills per minute the peer is open. After the user stops
+  // talking (mic muted, model done speaking) we keep the session warm for a
+  // short grace window — they often speak again — then drop the peer so the
+  // meter stops. The next PTT gesture reconnects (~1–2s). Activity (mic open,
+  // user speech, model audio) clears/defers the timer; quiescence arms it.
+  private idleTeardownTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Grace window before tearing down an idle-but-connected session.
+   *  Default 45s; override via `setIdleTeardownMs()` (tests / demos). */
+  private idleTeardownMs = 45_000;
+
   // ─── § rotation + reconnect (W2 — P6.1 + P6.2) ─────────────────────────
   /** Standby peer connection during rotation. Becomes the primary on swap. */
   private rotatingPc: RTCPeerConnection | null = null;
@@ -223,6 +234,22 @@ export class RealtimeClient {
     // also handles this, but sending explicit cancel cuts ~50–100ms.
     if (type === 'input_audio_buffer.speech_started') {
       this.send({ type: 'response.cancel' });
+    }
+
+    // ─── § idle-teardown (cost control) ─────────────────────────────────
+    // Keep the session alive while either side is actively producing audio,
+    // even with the mic muted (e.g. hold-released and the model is replying).
+    // Re-arm the idle clock only once the exchange is fully quiet.
+    if (
+      type === 'input_audio_buffer.speech_started' ||
+      type === 'response.created' ||
+      type === 'response.output_audio.delta' ||
+      type === 'response.audio.delta' ||
+      type === 'response.output_audio_transcript.delta'
+    ) {
+      this.clearIdleTeardown();
+    } else if (type === 'response.done') {
+      this.noteAudioActivity();
     }
 
     // ─── § renderer-wireup (gap 2) — pendingUtterance producer ──────────
@@ -483,6 +510,10 @@ export class RealtimeClient {
         track.enabled = enabled;
       }
     }
+    // Cost control: an open mic means active use → cancel any pending
+    // teardown. Going muted starts the idle grace clock.
+    if (mode === 'muted') this.armIdleTeardown();
+    else this.clearIdleTeardown();
     this.emit('micMode', mode);
 
     // Broadcast over IPC so other windows (Canvas, future status surfaces)
@@ -502,6 +533,50 @@ export class RealtimeClient {
     const next: MicMode = this._micMode === 'muted' ? 'tap-open' : 'muted';
     this.setMicMode(next);
     return next;
+  }
+
+  // ─── § idle-teardown (cost control) ────────────────────────────────────
+  /**
+   * Start the idle grace clock. After `idleTeardownMs` of continuous
+   * quiescence (mic still muted, no fresh activity) the peer is closed so
+   * OpenAI stops billing. Re-armable — each call resets the clock.
+   */
+  private armIdleTeardown(): void {
+    this.clearIdleTeardown();
+    // Only meaningful while connected; idle/closed peers cost nothing.
+    if (this._status !== 'connected') return;
+    this.idleTeardownTimer = setTimeout(() => {
+      this.idleTeardownTimer = null;
+      // Re-check at fire time: a re-opened mic or a reconnect in flight
+      // means the user came back — don't tear down under them.
+      if (this._status === 'connected' && this._micMode === 'muted' && !this.rotationInFlight) {
+        console.log('[realtime] idle teardown — closing peer to stop billing');
+        this.autoReconnect = false; // intentional close, not an outage
+        this.close();
+      }
+    }, this.idleTeardownMs);
+  }
+
+  private clearIdleTeardown(): void {
+    if (this.idleTeardownTimer) {
+      clearTimeout(this.idleTeardownTimer);
+      this.idleTeardownTimer = null;
+    }
+  }
+
+  /** Override the idle-teardown grace window (tests / demos). */
+  setIdleTeardownMs(ms: number): void {
+    if (Number.isFinite(ms) && ms > 0) this.idleTeardownMs = ms;
+  }
+
+  /**
+   * Note live audio activity (user speaking or model responding) so an
+   * in-flight exchange is never torn down mid-stream. Defers teardown while
+   * the mic is muted but audio is still flowing.
+   */
+  private noteAudioActivity(): void {
+    if (this._micMode === 'muted') this.armIdleTeardown();
+    else this.clearIdleTeardown();
   }
 
   /**
@@ -529,6 +604,7 @@ export class RealtimeClient {
     this.autoReconnect = false;
     this.clearReconnectTimer();
     this.clearRotationTimer(); // § renderer-wireup (gap 1)
+    this.clearIdleTeardown(); // § idle-teardown (cost control)
     this.teardownRotationPeer('manual close');
     try {
       this.dc?.close();

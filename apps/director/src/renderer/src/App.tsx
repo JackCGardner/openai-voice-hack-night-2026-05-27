@@ -83,23 +83,16 @@ export function App(): JSX.Element {
     console.log(`[realtime] status → ${realtimeStatus}`);
   }, [realtimeStatus]);
 
-  // Open the Realtime peer when the shell mounts so voice/text is ready.
-  // GATED to the strip surface only — the chat-debug window must NEVER auto-connect.
-  // Two simultaneous Realtime peers would grab mic twice and produce overlapping AI audio.
-  // See W4 P2 anomaly note + Main cross-cutting fix.
-  useEffect(() => {
-    if (surface !== 'strip') return;
-    if (client.status !== 'idle') return;
-    let cancelled = false;
-    client.connect().catch((err) => {
-      if (!cancelled) {
-        console.error('[realtime] auto-connect failed', err);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [client, surface]);
+  // ── Connect-on-demand (cost control) ───────────────────────────────────
+  // We deliberately do NOT auto-connect on launch. The OpenAI Realtime API
+  // bills per minute the session is open, so holding a live peer while the
+  // user is idle burns money for nothing. Instead the app launches dormant
+  // (no token, no mic, no peer) and connects on the first push-to-talk
+  // gesture (see the PTT handlers below). The client also tears the peer
+  // down after an idle window — see RealtimeClient idle-teardown.
+  //
+  // (Was: auto-connect on strip mount. Removed per cost requirement —
+  // "assume on launch that the user isn't going to be immediately using it".)
 
   // ─── § renderer-wireup (gaps 1/2/10/11) — degradation + rotation UX ──────
   // Gated to the strip surface so the chat-debug window never drives Canvas
