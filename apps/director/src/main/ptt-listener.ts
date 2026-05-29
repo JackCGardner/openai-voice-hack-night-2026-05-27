@@ -162,6 +162,11 @@ let targetWindow: BrowserWindow | null = null;
 let gesture: PttGesture | null = null;
 
 function sendToStrip(channel: string): void {
+  // Diagnostic: prints to the `pnpm dev` terminal every time the native
+  // listener detects + classifies a gesture. If you HOLD ⌃⌥ and see NO
+  // "[ptt] →" lines here, the listener isn't receiving keystrokes — grant
+  // Input Monitoring (System Settings → Privacy & Security) and relaunch.
+  console.log(`[ptt] → ${channel}`);
   const win = targetWindow;
   if (!win || win.isDestroyed()) return;
   try {
@@ -186,7 +191,16 @@ export function startPttListener(strip: BrowserWindow): void {
     onLock: () => sendToStrip(IpcChannel.PttLock),
   });
 
-  uIOhook.on('keydown', (e) => gesture?.keyDown(e.keycode));
+  let firstKeyLogged = false;
+  uIOhook.on('keydown', (e) => {
+    if (!firstKeyLogged) {
+      firstKeyLogged = true;
+      // Definitive permission check: if you press ANY key and never see this,
+      // the OS is withholding events → grant Input Monitoring + relaunch.
+      console.log('[ptt] native listener is receiving keystrokes ✓ (Input Monitoring granted)');
+    }
+    gesture?.keyDown(e.keycode);
+  });
   uIOhook.on('keyup', (e) => gesture?.keyUp(e.keycode));
 
   try {
