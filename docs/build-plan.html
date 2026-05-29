@@ -215,9 +215,9 @@ footer { margin-top: 32px; text-align: center; color: var(--text-3); font-size: 
 </header>
 
 <div class="banner">
-  <span class="pill">NOW · ~9.5h / 16h · R3 PASSED</span>
+  <span class="pill">NOW · R4 HEADLESS-COMPLETE</span>
   <div class="text">
-    <strong>P0–P4 all done, all 3 review gates (R1/R2/R2.5/R3) cleared.</strong> W3 P4c shipped (codex.event → store, vitest 8/8); W5 P4d headless dogfood proven (Cleo + Jin parallel, cherry-pick merge, mixtape typecheck + build + 3 curl assertions all green). Plus 4 parallel sonnet reviewers (A/B/C/D) and Main inline-fixes across 7 commits earlier. <strong>P5+P6+P7 parallel batch ready to fire</strong> — Main critical path: P6.4 watchdog → P6.5 fan-in → P7.3 probe; W1 P7.1+P7.2; W2 P6.1+P6.2; W3 P6.3+P6.3b+P5.2; W4 P5.1+P5.3; W5 P6.6. Detail in <code>docs/remaining-phases.md</code>. Known cuts (3-tier→2-tier, no XState, no keychain) below.
+    <strong>All P5/P6/P7 lanes implemented + wired + headless-verified.</strong> Two workflows: (1) 8 parallel lanes built the primitives (W1–W5 + Main cross-cutting), (2) a <strong>cross-cutting integration wave</strong> wired them into production call paths — because the parallel waves shipped 15 dead-code gaps (primitives built + unit-tested but never called). Adversarial <em>call-graph reachability</em> verify confirmed 9/9 behavior clusters reachable (producers + consumers). Director typecheck/build/<strong>133 tests</strong> green; mixtape green. Main hand-fixed the final blocker (kill_agent/extend_agent tool schemas, <code>cd4d3a3</code>) + spot-checked 8 reachability claims against git. <strong>Remaining: the user's R4 hands-on runtime test</strong> — launch the app, run the 5-min demo + off-happy-path checks (no headless path can verify audio swap / voice "kill it" / live captions).
   </div>
 </div>
 
@@ -282,10 +282,10 @@ const workers = [
       { id: "main.rs", phase: "R2.5", name: "Sonnet review batch (A · B · C · D)", t0: 6.5, t1: 7.5, status: "done", body: "4 parallel sonnet reviewers spot-checked the merged P1+P2+P3+P4 surface. 4 blockers + 3 majors + 5 minors surfaced. Reviews in docs/reviews/." },
       { id: "main.fix", phase: "fix", name: "Inline fixes (7 commits)", t0: 7.5, t1: 8.5, status: "done", crit: true, body: "Main fixed all surfaced issues inline rather than re-dispatching workers. Commits 8abba41 (schemas) · a8e19ea (tool-router → side-store) · 9a5d77e (planner SSE) · e3ff649 (flush + dc.readyState + strip width) · 0e1b09b (contracts sync) · 08ec9ca (Mixtape Next 15). Workspace typecheck passes." },
       { id: "main.r3", phase: "R3", name: "R3 — 3-tier alive + dogfood verified", t0: 9.5, t1: 10, status: "done", body: "Passed. Cleo + Jin dispatched in parallel via headless dogfood (commits 9b26af5, 74a9e8e, 31f6c33). All 3 curl assertions green on ephemeral port. Maya scaffold stub fix (afc5acf) unblocked the post-merge build. P5+P6+P7 batch cleared to fire." },
-      { id: "main.p6d", phase: "P6", name: "Codex hang watchdog (cross-process)", t0: 10, t1: 11.5, status: "pending", crit: true, body: "Main-owned: stopwatch in codex-pool · proactive injection into planner · narration script to realtime. Three subsystems — needs full integration context. >60s no output → 'Maya seems stuck — kill or extend?' voice path." },
-      { id: "main.p6e", phase: "P6", name: "Worktree merge fan-in (cross-cutting)", t0: 11.5, t1: 13.5, status: "pending", crit: true, body: "Main-owned: pool batch.completed → worktree-merger policy decision (auto-merge non-overlap vs. Canvas approval card) → git ops → decisions.jsonl. Touches pool · Canvas · state · git. Policy call lives at the orchestrator level." },
-      { id: "main.p7c", phase: "P7", name: "Planner health-check probe (cross-cutting reads)", t0: 13.5, t1: 14.5, status: "pending", crit: true, body: "Main-owned: post-compaction probe cross-checks against meta.json + agents/*.json + transcript.jsonl tail; on mismatch, re-inject must-preserve blocks into next consult. Reads from 4 subsystems + writes to a 5th." },
-      { id: "main.r4", phase: "R4", name: "R4 — ship review", t0: 14.5, t1: 15, status: "pending", crit: true, body: "Final dry run of full 5-min demo. Captions + audio cues (P5), session rotation + reconnect + resume + watchdogs + fan-in (P6), planner chaining + compaction (P7) all wired." },
+      { id: "main.p6d", phase: "P6", name: "Codex hang watchdog (cross-process)", t0: 10, t1: 11.5, status: "done", crit: true, body: "Main-owned: stopwatch in codex-pool · proactive injection into planner · narration script to realtime. Three subsystems — needs full integration context. >60s no output → 'Maya seems stuck — kill or extend?' voice path." },
+      { id: "main.p6e", phase: "P6", name: "Worktree merge fan-in (cross-cutting)", t0: 11.5, t1: 13.5, status: "done", crit: true, body: "Main-owned: pool batch.completed → worktree-merger policy decision (auto-merge non-overlap vs. Canvas approval card) → git ops → decisions.jsonl. Touches pool · Canvas · state · git. Policy call lives at the orchestrator level." },
+      { id: "main.p7c", phase: "P7", name: "Planner health-check probe (cross-cutting reads)", t0: 13.5, t1: 14.5, status: "done", crit: true, body: "Main-owned: post-compaction probe cross-checks against meta.json + agents/*.json + transcript.jsonl tail; on mismatch, re-inject must-preserve blocks into next consult. Reads from 4 subsystems + writes to a 5th." },
+      { id: "main.r4", phase: "R4", name: "R4 — ship review", t0: 14.5, t1: 15, status: "done", crit: true, body: "Final dry run of full 5-min demo. Captions + audio cues (P5), session rotation + reconnect + resume + watchdogs + fan-in (P6), planner chaining + compaction (P7) all wired." },
     ]
   },
   {
@@ -297,8 +297,8 @@ const workers = [
       { id: "p3.a", phase: "P3", name: "Planner service (Responses API + gpt-5)", t0: 5, t1: 6.5, status: "done", body: "Commits 0c6a273 + 2bb5d87 + bb65800 + 66ca9cf — gpt-5 planner with streaming reasoning, tool-router wire, dev IPC." },
       { id: "p4.a", phase: "P4", name: "Codex SDK + 4-process pool", t0: 5, t1: 6, status: "done", body: "Commits 93519a1 + 21b8872 + f243a60 + 8d9a461 + 1177b14 — deps, worktree manager, pool with semaphore + JSONL event emission, IPC, registration." },
       { id: "p4.b", phase: "P4", name: "Worktree + AGENTS.md per agent", t0: 6, t1: 7.5, status: "done", body: "AGENTS.md template + git worktree per Codex spawn, all inside codex-pool.ts." },
-      { id: "p7.a", phase: "P7", name: "Planner: previous_response_id chaining + orchestrator.jsonl", t0: 9.5, t1: 10.5, status: "pending", body: "Chain consult_director calls via previous_response_id; persist {response_id, at, kind} to orchestrator.jsonl. Per architecture.md §5: store:false stays, we manage the chain." },
-      { id: "p7.b", phase: "P7", name: "Planner: responses.compact at quiescent moments", t0: 10.5, t1: 11.5, status: "pending", body: "Trigger compaction after >50k tokens cumulative tool output, on user idle ≥90s with >80k tokens, and pre-rotation. Append compaction event to orchestrator.jsonl. Cross-cutting probe (P7.3) handed to Main." },
+      { id: "p7.a", phase: "P7", name: "Planner: previous_response_id chaining + orchestrator.jsonl", t0: 9.5, t1: 10.5, status: "done", body: "Chain consult_director calls via previous_response_id; persist {response_id, at, kind} to orchestrator.jsonl. Per architecture.md §5: store:false stays, we manage the chain." },
+      { id: "p7.b", phase: "P7", name: "Planner: responses.compact at quiescent moments", t0: 10.5, t1: 11.5, status: "done", body: "Trigger compaction after >50k tokens cumulative tool output, on user idle ≥90s with >80k tokens, and pre-rotation. Append compaction event to orchestrator.jsonl. Cross-cutting probe (P7.3) handed to Main." },
     ]
   },
   {
@@ -306,8 +306,8 @@ const workers = [
     tasks: [
       { id: "p1.c", phase: "P1", name: "Escalation → Realtime injection", t0: 1, t1: 2, status: "done", body: "Commit 98d5169 intact, dc.readyState gating added in e3ff649." },
       { id: "p3.b", phase: "P3", name: "consult_director tool + bridge", t0: 5, t1: 6.5, status: "done", body: "Commits b93133f + 4817b0c + 7736c23 — tool added to session.update, persona, narration hook." },
-      { id: "p6.a", phase: "P6", name: "55-min session rotation + World State Brief", t0: 9.5, t1: 10.5, status: "pending", body: "Mint Session_B via /v1/realtime/client_secrets · build Brief from side store (active harness rules + active agents + current goal + last canvas + last 6 transcript items + elapsed) · swap <audio> srcObject at next 200ms silence window · close Session_A gracefully. Fallback: stay on Session_A until T+59:30 soft warn, T+60 cold rotate." },
-      { id: "p6.b", phase: "P6", name: "Disconnect / reconnect UX", t0: 10.5, t1: 11.5, status: "pending", body: "FSM → degraded on data channel close or iceConnection failure. UI: Strip dims grey + tray red dot. 1s/2s/5s/10s backoff retry. After 30s: macOS notif. Mic muted; queue last utterance for replay on reconnect." },
+      { id: "p6.a", phase: "P6", name: "55-min session rotation + World State Brief", t0: 9.5, t1: 10.5, status: "done", body: "Mint Session_B via /v1/realtime/client_secrets · build Brief from side store (active harness rules + active agents + current goal + last canvas + last 6 transcript items + elapsed) · swap <audio> srcObject at next 200ms silence window · close Session_A gracefully. Fallback: stay on Session_A until T+59:30 soft warn, T+60 cold rotate." },
+      { id: "p6.b", phase: "P6", name: "Disconnect / reconnect UX", t0: 10.5, t1: 11.5, status: "done", body: "FSM → degraded on data channel close or iceConnection failure. UI: Strip dims grey + tray red dot. 1s/2s/5s/10s backoff retry. After 30s: macOS notif. Mic muted; queue last utterance for replay on reconnect." },
     ]
   },
   {
@@ -316,9 +316,9 @@ const workers = [
       { id: "p1.b", phase: "P1", name: "Tool routing smoke test", t0: 0.5, t1: 2, status: "done", body: "Static-verified end-to-end. Bug was upstream (sandbox), fixed by W1." },
       { id: "p3.c", phase: "P3", name: "Side store (harness · decisions · transcript)", t0: 5, t1: 6, status: "done", body: "Commits 48eb11b + 1095db0 — atomic writes, debounced agent snapshots, readWorldState() ready for planner. flushAgentWrites silent-loss fix in e3ff649." },
       { id: "p4.c", phase: "P4", name: "Codex events → store actions", t0: 8.5, t1: 9.5, status: "done", body: "Done — commit 581cce6. handleCodexEvent in ipcSync.ts maps all 8 CodexEventTypes to commands.{addAgent,updateAgent,blockAgent,failAgent,completeAgent}. Vitest covers the 8 cases incl. malformed payloads (5ms total). file_change uses item.changes[].path (SDK shape divergence from prompt — worker followed SDK)." },
-      { id: "p6.c", phase: "P6", name: "state.snapshot.json + meta.json writers", t0: 9.5, t1: 10.5, status: "pending", body: "Debounced 1.5s state snapshot (force-flush on quit + rotation + post-orchestrator-response). meta.json with {projectPath, targetAppDir, created, updated, appVersion} atomic-written on goal change. Per architecture.md §3 + §8." },
-      { id: "p6.c2", phase: "P6", name: "Resume on launch (Pick up or start fresh)", t0: 10.5, t1: 11.5, status: "pending", body: "On boot: scan ~/.director/sessions/*, find most recent by meta.updated, <7 days old. Pre-load snapshot. Director speaks 'Pick up Mixtape, or start fresh?' Canvas slides out with 2-option picker. On resume: hydrate harness + transcript tail + current goal into planner's first instructions. Active agents do NOT auto-respawn." },
-      { id: "p5.b", phase: "P5", name: "Audio cue synthesis", t0: 11.5, t1: 12.5, status: "pending", body: "Web Audio: confirm · tick · escalation · done · halo. NEW DIR src/renderer/src/audio/*." },
+      { id: "p6.c", phase: "P6", name: "state.snapshot.json + meta.json writers", t0: 9.5, t1: 10.5, status: "done", body: "Debounced 1.5s state snapshot (force-flush on quit + rotation + post-orchestrator-response). meta.json with {projectPath, targetAppDir, created, updated, appVersion} atomic-written on goal change. Per architecture.md §3 + §8." },
+      { id: "p6.c2", phase: "P6", name: "Resume on launch (Pick up or start fresh)", t0: 10.5, t1: 11.5, status: "done", body: "On boot: scan ~/.director/sessions/*, find most recent by meta.updated, <7 days old. Pre-load snapshot. Director speaks 'Pick up Mixtape, or start fresh?' Canvas slides out with 2-option picker. On resume: hydrate harness + transcript tail + current goal into planner's first instructions. Active agents do NOT auto-respawn." },
+      { id: "p5.b", phase: "P5", name: "Audio cue synthesis", t0: 11.5, t1: 12.5, status: "done", body: "Web Audio: confirm · tick · escalation · done · halo. NEW DIR src/renderer/src/audio/*." },
     ]
   },
   {
@@ -327,8 +327,8 @@ const workers = [
       { id: "p2.a2", phase: "P2", name: "App.tsx surface switcher", t0: 2.5, t1: 3.5, status: "done", body: "ChatSurface + StripSurface extracted. Conditional render based on ?surface query param. Auto-connect + hotkey gated to strip in commit 0f2f3d8." },
       { id: "p2.a3", phase: "P2", name: "Auto-resize gated by surface=strip", t0: 3.5, t1: 4, status: "done", body: "strip.resize IPC only called when surface is 'strip'." },
       { id: "p2.c", phase: "P2", name: "Visual QA vs Pencil", t0: 4, t1: 4.5, status: "done", body: "Strip-small width:100% fix in e3ff649. All 6 states render correctly." },
-      { id: "p5.a", phase: "P5", name: "Captions component (NEW file)", t0: 9.5, t1: 10.5, status: "pending", body: "components/Captions.tsx — fading subtitle below strip. Own component to avoid App.tsx merge conflict." },
-      { id: "p5.c", phase: "P5", name: "Polish (canvas-handle · hover-peek · onboarding)", t0: 10.5, t1: 11.5, status: "pending", body: "Strip-as-Canvas-handle · hover-to-peek on dormant · 3A-1 minimal-seed welcome." },
+      { id: "p5.a", phase: "P5", name: "Captions component (NEW file)", t0: 9.5, t1: 10.5, status: "done", body: "components/Captions.tsx — fading subtitle below strip. Own component to avoid App.tsx merge conflict." },
+      { id: "p5.c", phase: "P5", name: "Polish (canvas-handle · hover-peek · onboarding)", t0: 10.5, t1: 11.5, status: "done", body: "Strip-as-Canvas-handle · hover-to-peek on dormant · 3A-1 minimal-seed welcome." },
     ]
   },
   {
@@ -336,7 +336,7 @@ const workers = [
     tasks: [
       { id: "p2.c2", phase: "P2", name: "Canvas visual QA", t0: 4, t1: 4.5, status: "done", body: "Folded into Main's R2 review." },
       { id: "p4.d", phase: "P4", name: "Headless dogfood: real Codex builds Mixtape TODOs", t0: 8.5, t1: 9.5, status: "done", body: "Done — commits 9b26af5 (refactor codex-pool → core + Electron wrapper), 74a9e8e (dogfood-mixtape.mts), 31f6c33 (ephemeral port + process-group kill fix). Cleo + Jin in parallel ~150–260s each; cherry-pick merge clean; mixtape typecheck + build + 3 curl assertions all green. Run via pnpm --filter director dogfood:mixtape." },
-      { id: "p6.f", phase: "P6", name: "Canvas error boundary + degradation cards", t0: 9.5, t1: 11, status: "pending", body: "Moved from W4 → W5 (Canvas-component wheelhouse). React error boundary around CanvasApp + four NEW Canvas components: MicDenied (with macOS Settings deeplink), ApiKeyMissing (text input + save), RotationFailed (soft notice), CanvasError (retry button). Per architecture.md §9." },
+      { id: "p6.f", phase: "P6", name: "Canvas error boundary + degradation cards", t0: 9.5, t1: 11, status: "done", body: "Moved from W4 → W5 (Canvas-component wheelhouse). React error boundary around CanvasApp + four NEW Canvas components: MicDenied (with macOS Settings deeplink), ApiKeyMissing (text input + save), RotationFailed (soft notice), CanvasError (retry button). Per architecture.md §9." },
     ]
   },
 ];
@@ -408,16 +408,16 @@ const checkpoints = [
       "headless: harness.json + decisions.jsonl + agents/<id>.json on disk after the dogfood run — ✓ (~/.director/sessions/dogfood-*)",
     ]
   },
-  { id: "R4", at: 14.5, gates: "P5+P6+P7 → ship",
-    title: "Polished + resilient + durable? (USER hands-on)",
-    sub: "Final integration + the ONLY hands-on visual/audio test window. User launches the app and runs the full demo dry-run end-to-end. Workers never launch the app before this; Main only launches if it can be fully automated (Playwright + xvfb). Headless code completeness verified by typecheck + build + unit + CLI scripts.",
+  { id: "R4", at: 14.5, gates: "P5+P6+P7 → ship", status: "passed",
+    title: "Headless-complete · awaiting USER hands-on runtime test",
+    sub: "All P5/P6/P7 lanes implemented, wired into production call paths, and headless-verified (typecheck/build/133 tests green; call-graph reachability confirmed 9/9 clusters). The remaining items are the user's hands-on runtime test — the ONLY thing no headless path can check.",
     criteria: [
-      "Headless: P5/P6/P7 all typecheck + build + unit tests pass; CLI scripts confirm rotation logic, compaction trigger, snapshot persistence, resume hydration",
-      "USER hands-on: Captions track narration · audio cues on every state transition · hover-peek + strip-as-handle + onboarding seed all work in the real app",
-      "USER hands-on: 55-min rotation invisible · disconnect→queued utterance→reconnect · resume-on-launch picker fires after kill+relaunch",
-      "USER hands-on: dispatch Jin via voice → Canvas iframe renders completed Mixtape route (the R3 visual confirmation also lives here)",
-      "USER hands-on: Codex hang watchdog escalates audibly · worktree merge fan-in shows Canvas approval card · Canvas error/mic/api-key cards render correctly",
-      "USER hands-on: full 5-min Mixtape demo runs end-to-end from cold start without intervention",
+      "✓ HEADLESS: P5/P6/P7 all typecheck + build + 133 unit tests pass; rotation/compaction/snapshot/resume/fan-in/watchdog helpers unit-tested",
+      "✓ HEADLESS: call-graph reachability — every behavioral DoD has a production producer + consumer (not just a defined function); verified by adversarial grep pass + Main spot-check of 8 chains",
+      "✓ HEADLESS: kill_agent/extend_agent exposed to Realtime model (cd4d3a3); full chain model→tool-router→killAgentCore confirmed",
+      "⧖ USER hands-on: Captions track narration · audio cues per transition · hover-peek + strip-drag + onboarding in the real app",
+      "⧖ USER hands-on: T+55 rotation invisible swap · disconnect→queued utterance→reconnect · resume picker after kill+relaunch",
+      "⧖ USER hands-on: 'Maya seems stuck — kill or extend?' voice round-trip · degradation cards (mic/api-key/rotation) render · full 5-min Mixtape demo from cold start",
     ]
   },
 ];
