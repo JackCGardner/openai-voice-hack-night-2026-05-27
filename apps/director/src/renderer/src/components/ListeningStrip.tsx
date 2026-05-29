@@ -1,5 +1,5 @@
 import { useEffect, useRef, type JSX } from 'react';
-import { useReducedMotion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 
 const BAR_COUNT = 21;
 const BAR_MIN_HEIGHT = 4;
@@ -13,6 +13,11 @@ interface ListeningStripProps {
   /** Mirror the waveform vertically (used by SpeakingStrip). */
   mirrored?: boolean;
   ariaLabel?: string;
+  /** Hands-free lock (double-tap PTT): mic stays hot unattended. Shows a
+   *  persistent "live" badge so the user knows recording continues + bills.
+   *  Momentary holds (mode 'hold') leave this false — the waveform alone
+   *  signals the brief listen. */
+  locked?: boolean;
 }
 
 /**
@@ -30,6 +35,7 @@ export function ListeningStrip({
   tint = 'working',
   mirrored = false,
   ariaLabel = 'Listening',
+  locked = false,
 }: ListeningStripProps): JSX.Element {
   const reduced = useReducedMotion();
   const barsRef = useRef<Array<HTMLDivElement | null>>([]);
@@ -130,13 +136,35 @@ export function ListeningStrip({
       <div
         className="strip-small"
         role="status"
-        aria-label={ariaLabel}
+        aria-label={locked ? `${ariaLabel} — hands-free (live)` : ariaLabel}
         style={{
           background: '#0E0E10D9',
           boxShadow: `${glow}, var(--shadow-strip)`,
-          borderColor: 'rgba(255,255,255,0.18)',
+          borderColor: locked ? 'rgba(232,120,86,0.55)' : 'rgba(255,255,255,0.18)',
         }}
       >
+        {locked && (
+          // Persistent "live" dot — hands-free lock keeps the mic hot
+          // unattended, so make that unmistakable (it's also the billing
+          // state). Momentary holds skip this; their waveform is enough.
+          <motion.div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              top: 6,
+              left: '50%',
+              x: '-50%',
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: 'var(--status-escalation, #E07856)',
+              boxShadow: '0 0 8px 2px rgba(224,120,86,0.7)',
+              zIndex: 2,
+            }}
+            animate={reduced ? undefined : { opacity: [1, 0.3, 1], scale: [1, 0.85, 1] }}
+            transition={reduced ? undefined : { duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
+          />
+        )}
         <div
           style={{
             position: 'absolute',

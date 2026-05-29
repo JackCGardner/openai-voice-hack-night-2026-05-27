@@ -31,9 +31,16 @@ export function StripSurface({
   remoteStream,
 }: StripSurfaceProps): JSX.Element {
   const kind = useStore((s) => s.strip.kind);
+  // § push-to-talk — the listening `mode` distinguishes a momentary HOLD
+  // ('hold') from a hands-free LOCK ('tap', mic stays hot unattended). The
+  // strip surfaces the locked state distinctly so the user always knows when
+  // the mic is live (and billing).
+  const listeningMode = useStore((s) =>
+    s.strip.kind === 'listening' ? s.strip.mode : null,
+  );
   return (
     <>
-      {renderStripFor(kind, micStream ?? null, remoteStream ?? null)}
+      {renderStripFor(kind, micStream ?? null, remoteStream ?? null, listeningMode)}
       {/* § captions (W4 — P5.1) — sibling of Strip, anchored 24px below. */}
       <Captions />
     </>
@@ -44,6 +51,7 @@ function renderStripFor(
   kind: StripStateKind,
   micStream: MediaStream | null,
   remoteStream: MediaStream | null,
+  listeningMode: 'tap' | 'hold' | null = null,
 ): JSX.Element {
   switch (kind) {
     case 'dormant':
@@ -52,7 +60,8 @@ function renderStripFor(
     case 'error':
       return <DormantStrip />;
     case 'listening':
-      return <ListeningStrip audioStream={micStream} />;
+      // 'tap' = hands-free lock (persistent hot mic) → show the locked badge.
+      return <ListeningStrip audioStream={micStream} locked={listeningMode === 'tap'} />;
     case 'speaking':
       return <SpeakingStrip audioStream={remoteStream} />;
     case 'thinking':
