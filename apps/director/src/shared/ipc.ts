@@ -116,6 +116,12 @@ export const IpcChannel = {
   // ─── § session-resume (W3 — P6.3b) ────────────────────────────────────
   /** Main → renderer: boot found a <7d-old session; show the resume picker. */
   SessionResumeAvailable: 'session.resumeAvailable',   // Worker 3 — P6.3b
+  // ─── § persistence-wiring (gap 5) ─────────────────────────────────────
+  /** Renderer → main: fire-and-forget push of the serializable store so
+   *  main can persist `state.snapshot.json` (debounced) + `meta.json` on
+   *  goal change. Main keeps no full mirror, so the renderer (canonical
+   *  store) is the push source. See remaining-phases.md gap 5. */
+  StateSnapshotPush: 'state.snapshotPush',             // gap 5 — persistence
 } as const;
 
 export type IpcChannel = (typeof IpcChannel)[keyof typeof IpcChannel];
@@ -499,6 +505,14 @@ export interface DirectorBridge {
       cb: (payload: SessionResumeAvailablePayload) => void,
     ) => () => void;
   };
+  // ─── § persistence-wiring (gap 5) ─────────────────────────────────────
+  /** Push the serializable store to main so it can persist
+   *  `state.snapshot.json` (debounced) + `meta.json` on goal change. Main
+   *  keeps no full mirror; the canonical renderer store is the push source.
+   *  Fire-and-forget — a failed persist never blocks the renderer. */
+  persistence: {
+    pushSnapshot: (payload: StateSnapshotPushPayload) => void;
+  };
 }
 
 declare global {
@@ -535,6 +549,8 @@ export interface IpcSendMap {
   [IpcChannel.RealtimeReconnectState]: RealtimeReconnectStatePayload;
   // § session-resume (W3 — P6.3b)
   [IpcChannel.SessionResumeAvailable]: SessionResumeAvailablePayload;
+  // § persistence-wiring (gap 5)
+  [IpcChannel.StateSnapshotPush]: StateSnapshotPushPayload;
 }
 
 /** Invoke-style channels (request → ack). */
@@ -623,6 +639,21 @@ export interface SessionResumePreview {
 export interface SessionResumeAvailablePayload {
   resumeAvailable: true;
   sessionPreview: SessionResumePreview;
+}
+
+// ─── § persistence-wiring payloads (gap 5) ──────────────────────────────
+// The renderer holds the canonical store; main holds no full mirror. On
+// each meaningful store mutation the renderer serializes its store via
+// `useStore.getState().snapshot()` and pushes it here. Main persists it to
+// `state.snapshot.json` (debounced 1.5s in side-store) and, when `goal`
+// changes, writes `meta.json` so the resume scanner sees the latest goal.
+
+export interface StateSnapshotPushPayload {
+  /** The serializable view of the renderer store (no timer handles etc). */
+  snapshot: SerializableStore;
+  /** Current goal — pulled out for the `meta.json` writer so main doesn't
+   *  have to reach into the snapshot shape. Mirrors `snapshot.goal`. */
+  goal: string | null;
 }
 
 

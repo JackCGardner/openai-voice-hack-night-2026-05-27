@@ -44,6 +44,11 @@ import {
   registerSideStoreIpc,
 } from './side-store.js';
 import type { SessionResumeAvailablePayload } from '../shared/ipc.js';
+// ─── § persistence-wiring (gap 5) ───────────────────────────────────────
+import {
+  registerSnapshotPushIpc,
+  writeSessionInitMeta,
+} from './side-store.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
@@ -375,6 +380,14 @@ function registerIpcHandlers(): void {
       payload: RealtimeRotationRequestPayload,
     ): Promise<RealtimeRotationResponse> => {
       const requestId = payload?.requestId ?? 'rot-unknown';
+      // ─── § persistence-wiring (gap 5) ─────────────────────────────────
+      // Advisory 13: drain the debounced snapshot writer at session
+      // rotation so Session_B's World State Brief reseeds from on-disk
+      // state that's current as of the rotation request — not ≤1.5s stale.
+      // Fire-and-forget; rotation prep below does not depend on the flush.
+      void forceFlushSnapshot().catch((err) =>
+        console.warn('[director] forceFlushSnapshot during rotation failed', err),
+      );
       try {
         const { token, brief } = await prepareRotation({ voice: payload?.voice });
         // session_id is opaque on the OpenAI mint response — the renderer
@@ -497,6 +510,21 @@ app.whenReady().then(() => {
   void registerSideStoreIpc().catch((err) =>
     console.warn('[director] registerSideStoreIpc failed', err),
   );
+
+  // ─── § persistence-wiring (gap 5) ───────────────────────────────────
+  // Wire the renderer's `state.snapshotPush` channel → side-store's
+  // `writeStateSnapshot` (debounced) + `writeMeta` (on goal change). Main
+  // keeps no full state mirror, so the canonical renderer store is the
+  // push source. Also write the `meta.json` header once at boot with the
+  // app version + project path so the resume scanner has a header before
+  // the first goal is set. `writeSessionInitMeta` runs AFTER the session
+  // dir exists (chained off registerSideStoreIpc → initSession).
+  registerSnapshotPushIpc();
+  void registerSideStoreIpc()
+    .then(() => writeSessionInitMeta({ appVersion: app.getVersion() }))
+    .catch((err) =>
+      console.warn('[director] writeSessionInitMeta failed', err),
+    );
 
   // ─── § compaction-client bootstrap (W1 — gap 3) ─────────────────────
   // Hand the planner a real OpenAI client so `fireCompactionAsync` stops

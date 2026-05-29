@@ -494,6 +494,49 @@ export function initIpcSync(): void {
       '[ipcSync] bridge.session.onResumeAvailable not exposed — resume picker disabled',
     );
   }
+
+  // § persistence-wiring (gap 5)
+  initSnapshotPush();
+}
+
+// ─── § persistence-wiring (gap 5) ─────────────────────────────────────────
+// Main keeps no full state mirror — it only pushes `state.patch` mutations
+// to us. So the canonical renderer store is the source of truth for the
+// on-disk `state.snapshot.json` + `meta.json`. We subscribe to the store
+// and push a serialized snapshot to main on every meaningful mutation. The
+// main-side writer (`side-store.ts § persistence-wiring`) is debounced 1.5s
+// internally, so a leading-edge push per mutation is fine — no extra
+// throttling needed here.
+//
+// Defensive: a missing bridge / push throw is swallowed; persistence is
+// strictly best-effort and must never block UI updates.
+
+function pushSnapshotNow(): void {
+  const bridge = window.director;
+  if (!bridge?.persistence?.pushSnapshot) return;
+  try {
+    const snapshot = useStore.getState().snapshot();
+    bridge.persistence.pushSnapshot({ snapshot, goal: snapshot.goal });
+  } catch (err) {
+    console.warn('[ipcSync] snapshot push failed', err);
+  }
+}
+
+function initSnapshotPush(): void {
+  const bridge = window.director;
+  if (!bridge?.persistence?.pushSnapshot) {
+    console.warn(
+      '[ipcSync] bridge.persistence.pushSnapshot not exposed — state persistence disabled',
+    );
+    return;
+  }
+  // Push an initial snapshot so a session that never mutates still gets a
+  // meta header + baseline snapshot on disk.
+  pushSnapshotNow();
+  // Subscribe to every store change. zustand calls the listener after each
+  // `set`; the main-side debounce coalesces the bursts.
+  const unsub = useStore.subscribe(pushSnapshotNow);
+  unsubscribers.push(unsub);
 }
 
 export function teardownIpcSync(): void {

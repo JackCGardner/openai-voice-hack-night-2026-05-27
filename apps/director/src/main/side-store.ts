@@ -907,3 +907,91 @@ export function _resetSnapshotForTests(): void {
   snapshotPending = null;
   snapshotInFlight = null;
 }
+
+// ─── § persistence-wiring (gap 5) ───────────────────────────────────────
+// Append-only marker per docs/contracts.md § 13.1. This block wires the
+// previously-dead `writeStateSnapshot` + `writeMeta` writers into a real
+// production call path:
+//
+//   - `registerSnapshotPushIpc()` subscribes to the renderer's
+//     `state.snapshotPush` channel. Main keeps NO full state mirror; the
+//     renderer (canonical zustand store) pushes its serialized store on
+//     each meaningful mutation. We forward the store to `writeStateSnapshot`
+//     (debounced 1.5s internally) and, whenever the goal string changes
+//     versus the last push, atomically `writeMeta({ currentGoal })`.
+//   - `writeSessionInitMeta()` writes `meta.json` once at boot with the
+//     app version + project path so the resume scanner has a header even
+//     before the first goal is set.
+//
+// Defensive: a malformed push is dropped with a `console.warn`; a write
+// failure is logged but never thrown (the renderer fire-and-forgets).
+
+/** Last goal main observed via a snapshot push — used to gate `writeMeta`
+ *  so we only touch `meta.json` when the goal actually changes. `undefined`
+ *  means "no push seen yet" (distinct from an explicit null goal). */
+let lastObservedGoal: string | null | undefined = undefined;
+
+let snapshotPushIpcRegistered = false;
+
+/**
+ * Register the `state.snapshotPush` listener. Idempotent. Call once from
+ * `main/index.ts` during `app.whenReady()` (after `registerSideStoreIpc`).
+ *
+ * The handler is fire-and-forget from the renderer's side: it persists the
+ * pushed store snapshot (debounced) and, on goal change, the meta header.
+ */
+export function registerSnapshotPushIpc(): void {
+  if (snapshotPushIpcRegistered) return;
+  snapshotPushIpcRegistered = true;
+  ipcMain.on(
+    IpcChannel.StateSnapshotPush,
+    (_evt, payload: { snapshot?: unknown; goal?: string | null }) => {
+      if (!payload || typeof payload !== 'object') {
+        console.warn('[side-store] state.snapshotPush dropped malformed payload');
+        return;
+      }
+      // Persist the store snapshot (internally debounced 1.5s + strips
+      // ephemerals). `undefined` snapshot is ignored by writeStateSnapshot.
+      writeStateSnapshot(payload.snapshot);
+
+      // Goal-change → meta.json. Only write when the goal string differs
+      // from the last push so we don't rewrite meta on every keystroke.
+      const goal =
+        payload.goal === undefined
+          ? null
+          : payload.goal;
+      if (goal !== lastObservedGoal) {
+        lastObservedGoal = goal;
+        writeMeta({ currentGoal: goal }).catch((err) =>
+          console.warn('[side-store] writeMeta on goal change failed', err),
+        );
+      }
+    },
+  );
+}
+
+/**
+ * Write the `meta.json` header once at session init with the app version +
+ * project path. Idempotent-friendly: `writeMeta` merges with any existing
+ * meta and refreshes `updatedAt`, so re-running on resume is harmless.
+ *
+ * `appVersion` comes from the caller (main reads its own package version);
+ * `projectPath` defaults to null until a project is opened.
+ */
+export async function writeSessionInitMeta(opts?: {
+  appVersion?: string | null;
+  projectPath?: string | null;
+  name?: string | null;
+}): Promise<SessionMeta> {
+  return writeMeta({
+    appVersion: opts?.appVersion ?? null,
+    projectPath: opts?.projectPath ?? null,
+    name: opts?.name ?? null,
+  });
+}
+
+/** Test-only — reset the goal-change gate so a fresh test starts clean. */
+export function _resetSnapshotPushForTests(): void {
+  lastObservedGoal = undefined;
+  snapshotPushIpcRegistered = false;
+}

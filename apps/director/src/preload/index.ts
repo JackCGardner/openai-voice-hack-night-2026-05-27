@@ -22,6 +22,7 @@ import {
   type RealtimeRotationRequestPayload,
   type RealtimeRotationResponse,
   type SessionResumeAvailablePayload,
+  type StateSnapshotPushPayload,
 } from '../shared/ipc.js';
 import type { CodexEvent } from '../shared/codex.js';
 import type {
@@ -130,6 +131,17 @@ const api: DirectorBridge = {
           IpcChannel.SessionResumeAvailable,
           listener,
         );
+    },
+  },
+  // ─── § persistence-wiring (gap 5) ──────────────────────────────────────
+  persistence: {
+    pushSnapshot(payload: StateSnapshotPushPayload): void {
+      try {
+        ipcRenderer.send(IpcChannel.StateSnapshotPush, payload);
+      } catch (err) {
+        // Best-effort: a failed persist push must never crash the renderer.
+        console.warn('[preload] persistence.pushSnapshot failed', err);
+      }
     },
   },
 };

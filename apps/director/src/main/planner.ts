@@ -42,6 +42,8 @@ import {
   readLastOrchestratorResponseId,
   type OrchestratorUsage,
 } from './side-store.js';
+// ─── § persistence-wiring (gap 5) ───────────────────────────────────────
+import { forceFlushSnapshot } from './side-store.js';
 import {
   runCompaction,
   runHealthCheckProbe,
@@ -632,6 +634,14 @@ export async function consultDirector(
       err,
     );
   }
+
+  // ─── § persistence-wiring (gap 5) ─────────────────────────────────────
+  // Advisory 13: a completed planner turn is a quiescent moment where the
+  // renderer store has likely just mutated (new decisions / agent updates).
+  // Drain the debounced snapshot writer so a crash right after a consult
+  // doesn't lose the post-consult state. Fire-and-forget — never block the
+  // consult return; a flush failure is logged inside forceFlushSnapshot.
+  void forceFlushSnapshot();
 
   // Quiescent-moment compaction check — fire-and-forget so this consult
   // returns immediately. The NEXT consult will wait on the promise.
