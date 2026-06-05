@@ -52,6 +52,12 @@ import {
   type ProbeMismatch,
 } from './compaction-runner.js';
 import { readWorldState as readSideStoreWorldState } from './side-store.js';
+// ─── § agent-brain (full-access @openai/agents orchestrator, gpt-5.5) ────
+// The deep brain is now an Agents-SDK orchestrator with full local system
+// access (shell tool), not a reasoning-only Responses call. consultDirector
+// routes here by default; set DIRECTOR_LEGACY_PLANNER=1 to fall back to the
+// old gpt-5 Responses planner below.
+import { runAgentBrain } from './agent-brain.js';
 
 const PLANNER_MODEL = 'gpt-5';
 const RESPONSES_URL = 'https://api.openai.com/v1/responses';
@@ -437,6 +443,25 @@ export async function consultDirector(
   args: ConsultArgs,
   mainWindow?: BrowserWindow | null,
 ): Promise<ConsultResult> {
+  // ─── § agent-brain — default path ──────────────────────────────────────
+  // Route to the full-access Agents-SDK orchestrator (gpt-5.5) unless the
+  // legacy reasoning-only planner is explicitly requested. The agent brain
+  // investigates the real filesystem before answering, so its summary is
+  // grounded in the actual project rather than a context-free guess.
+  if (!process.env.DIRECTOR_LEGACY_PLANNER) {
+    try {
+      const r = await runAgentBrain(args.prompt);
+      return { summary: r.summary, decisions: r.decisions, full_text: r.full_text };
+    } catch (err) {
+      // Fall through to the legacy planner if the agent brain fails to run
+      // (e.g. model id unavailable) — better a reasoning answer than none.
+      console.warn(
+        '[planner] agent brain failed, falling back to legacy Responses planner',
+        err,
+      );
+    }
+  }
+
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error('[planner] OPENAI_API_KEY missing in main process env');

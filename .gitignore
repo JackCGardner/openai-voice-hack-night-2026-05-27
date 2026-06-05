@@ -40,3 +40,6 @@ lerna-debug.log*
 # MCP / pencil generated screenshots
 images/
 .gstack/
+
+# electron-vite temp config dumps
+apps/director/electron.vite.config.*.mjs
