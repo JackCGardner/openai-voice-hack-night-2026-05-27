@@ -92,6 +92,10 @@ export function restate(prompt: string): string {
   // question grammar. Order matters — longer stems first.
   const STEMS: RegExp[] = [
     /^(?:hey|ok|okay|so|um|uh|well|alright|right)[,\s]+/i,
+    // Third-person restatements the foreground model tends to emit as the
+    // consult prompt ("the user wants to …", "user is asking about …") —
+    // strip so the label is the topic, not "On User wants …".
+    /^(?:the\s+)?user\s+(?:wants?|needs?|asked|is\s+asking|would\s+like|wonders?|wishes?)\s+(?:to\s+|for\s+|about\s+|me\s+to\s+|you\s+to\s+|us\s+to\s+|whether\s+)?/i,
     /^(?:can|could|would|will|should)\s+(?:you|we|i)\s+(?:please\s+)?/i,
     /^(?:please\s+)?(?:tell|help|let|show)\s+me\s+(?:about\s+|with\s+|how\s+to\s+)?/i,
     /^(?:what(?:'s| is| are)?|which|how|why|when|where|who)\s+(?:should|do|would|could|can|is|are|the\s+best\s+way\s+to)?\s*(?:we|i|you)?\s*/i,

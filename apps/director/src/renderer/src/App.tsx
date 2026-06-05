@@ -384,6 +384,7 @@ export function App(): JSX.Element {
   // applied in consult-tickets.ts) — we do NOT re-wrap it. v1: if the peer was
   // torn down (idle-teardown) we log + drop; the user can re-ask.
   useEffect(() => {
+    if (surface !== 'strip') return; // never inject from the chat-debug window
     const bridge = window.director;
     if (!bridge?.proactive?.onAnnounce) {
       console.warn('[proactive] bridge.proactive.onAnnounce not exposed — announcements dropped');
@@ -395,23 +396,22 @@ export function App(): JSX.Element {
         console.warn('[proactive] peer gone — dropping', p);
         return;
       }
+      // Speak it ONCE via per-response instructions. We deliberately do NOT add
+      // a persistent `conversation.item.create` (role:system "say this verbatim")
+      // — that lingers in the conversation and the model re-says it on every
+      // later turn, which feels un-interruptible. Per-response instructions
+      // affect only this one response and are never added to history, so it
+      // speaks once and the user can move the conversation on. Barge-in still
+      // cancels it normally.
       client.send({
-        type: 'conversation.item.create',
-        item: {
-          type: 'message',
-          role: 'system',
-          content: [
-            {
-              type: 'input_text',
-              text: `Say this to the user, verbatim and terse, then stop: "${p.text}"`,
-            },
-          ],
+        type: 'response.create',
+        response: {
+          instructions: `Say this to the user now, conversationally and briefly, then stop — do not add anything else: ${p.text}`,
         },
       });
-      client.send({ type: 'response.create' });
     });
     return off;
-  }, [client]);
+  }, [client, surface]);
 
   // Strip auto-resize per state. Only the Strip overlay window cares about
   // resizeStrip — the Chat debug window has a normal frame and keeps its

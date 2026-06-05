@@ -30,6 +30,7 @@ import { pathToFileURL } from 'node:url';
 import {
   Agent,
   run,
+  tool,
   shellTool,
   imageGenerationTool,
   setDefaultOpenAIKey,
@@ -38,6 +39,13 @@ import {
   type ShellAction,
   type ShellResult,
 } from '@openai/agents';
+import { z } from 'zod';
+import type { CanvasComponentName, CanvasComponentProps } from '../shared/canvas-ipc.js';
+// NOTE: `renderCanvas` lives in ./canvas.ts which imports `electron`. We import
+// it LAZILY inside the tool's execute() (below) rather than at module top, so
+// the agent-brain module graph doesn't eagerly pull electron — that keeps it
+// importable from the headless vitest env (planner.test.ts → planner →
+// agent-brain) without an electron shim.
 
 // gpt-5.5 per product decision. Configurable so the exact API id is a
 // one-line flip if it differs from this string.
@@ -123,6 +131,59 @@ export function saveGeneratedImage(
   writeFileSync(abs, Buffer.from(base64, 'base64'));
   return { path: abs, fileUrl: pathToFileURL(abs).href };
 }
+
+// ─── show_canvas — the Brain's bridge to the visual Canvas ───────────────
+// The Brain runs in the MAIN process, so it can drive the Canvas window
+// directly via renderCanvas() — no IPC round-trip. This is what makes the
+// Brain's work VISIBLE: a generated moodboard (image_url = file:// paths from
+// saveGeneratedImage), a gantt plan, a code_preview, a diagram, an html
+// layout. Without it, image generation produced files nothing ever displayed
+// (the foreground would open an empty moodboard). Props come as a JSON string
+// so the hosted tool schema stays simple + strict-safe; we parse + forward.
+const CANVAS_COMPONENTS = [
+  'moodboard',
+  'options_picker',
+  'code_preview',
+  'diagram',
+  'gantt',
+  'html',
+  'artifact_preview',
+  'form',
+  'agent_pod',
+] as const;
+
+const showCanvasTool = tool({
+  name: 'show_canvas',
+  description:
+    "Display a component on the user's Canvas (the big visual surface). This is how your work becomes VISIBLE — prefer showing over describing. Use it for a generated moodboard (concepts with image_url file:// paths from your image generation), a gantt plan, code_preview, a diagram, or an html layout. Never describe a moodboard in words when you can show it.",
+  parameters: z.object({
+    component: z.enum(CANVAS_COMPONENTS),
+    props_json: z
+      .string()
+      .describe(
+        'The component props as a JSON string. moodboard example: {"title":"Ergon landing","concepts":[{"id":"a","label":"Calm","description":"…","image_url":"file:///Users/…/.director/generated/123-calm.png"}]}',
+      ),
+  }),
+  async execute({ component, props_json }) {
+    let props: CanvasComponentProps;
+    try {
+      props = JSON.parse(props_json) as CanvasComponentProps;
+    } catch {
+      return 'props_json was not valid JSON — pass a JSON-stringified props object.';
+    }
+    try {
+      const { renderCanvas } = await import('./canvas.js');
+      renderCanvas({
+        component: component as CanvasComponentName,
+        props,
+        component_id: `brain-${component}-${Date.now()}`,
+      });
+      return `Shown ${component} on the Canvas.`;
+    } catch (err) {
+      return `Failed to show ${component}: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+});
 
 // ─── Local shell executor (full system access) ──────────────────────────
 
@@ -234,8 +295,8 @@ const BRAIN_INSTRUCTIONS = `You are the Director's deep brain — the manager's 
 
 # Visual & frontend design — use Pencil
 - For ANY visual or frontend design work — a landing page, a marketing section, a widget, a UI component, a layout — use the Pencil design tools (the \`pencil\` MCP, when available). Design it there first; don't hand-write speculative HTML/CSS when you can compose it visually.
-- To SHOW the user what you made, two paths: (1) take a screenshot of the Pencil design and surface that image on the Canvas, or (2) fetch/export the design's HTML via Pencil and show that. Prefer showing the artifact over describing it in words.
-- For GENERATIVE concept art — mood, texture, hero imagery, brand looks the user judges by eye (not structured layout) — use \`imageGenerationTool\`. It's hosted: it returns image BYTES, not a URL the Canvas can fetch. So SAVE each result with \`saveGeneratedImage(data, { label })\` (it writes to ~/.director/generated and returns a \`file://\` URL), then surface them as \`render_canvas('moodboard', { concepts: [{ id, label, description, image_url: <file://…> }] })\`. Push the moodboard only ONCE the images are written. Prefer Pencil for structured layout; image-gen for look-and-feel.
+- To SHOW the user anything, call the \`show_canvas\` tool (component + props_json). It drives the Canvas directly. Prefer showing the artifact over describing it. For a Pencil design: screenshot/export it, then show the image (moodboard) or its HTML (component:'html').
+- For GENERATIVE concept art — mood, texture, hero imagery, brand looks judged by eye — use \`imageGenerationTool\`. It's hosted: it returns image BYTES, not a fetchable URL. So for EACH image: SAVE it with \`saveGeneratedImage(data, { label })\` (writes to ~/.director/generated, returns a \`file://\` URL), THEN show them with \`show_canvas\` — component:'moodboard', props_json = JSON.stringify({ title, concepts: [{ id, label, description, image_url: <the file:// URL> }] }). Generate + save FIRST, then show ONE moodboard with all the concepts — never show an empty moodboard. Image generation is YOUR job (the voice layer can't do it and will hand these requests to you).
 - If the Pencil tools aren't present in this session, say so plainly and fall back to writing the markup directly with the shell — don't pretend to have designed something you couldn't.
 
 # When to do it yourself vs hand to Codex
@@ -243,7 +304,7 @@ const BRAIN_INSTRUCTIONS = `You are the Director's deep brain — the manager's 
 - HAND TO THE CODEX FLEET the heavy, long-running, multi-file execution — building a whole feature, generating many files, a deep refactor, work that parallelizes across Maya (frontend) / Jin (backend) / Cleo (data) / Wren (design). Describe the breakdown (who does what); the system dispatches them. Don't hand-build for 30 minutes what the fleet should build; don't dispatch the fleet for a one-file fix you can make now.
 
 # Showing plans and progress
-- When you break work into steps or dispatch the fleet, SHOW the plan as a gantt — \`render_canvas('gantt', { tasks: [{ id, label, owner, status }] })\` — and re-push it with updated statuses as work advances (same task ids; statuses move planned → running → done). Never read a multi-step plan aloud; render it.
+- When you break work into steps or a plan, SHOW it as a gantt via \`show_canvas\` — component:'gantt', props_json = JSON.stringify({ title, tasks: [{ id, label, owner, status }] }) — and re-show it with updated statuses as work advances (same task ids; statuses move planned → running → done). Never read a multi-step plan aloud; show it.
 
 # Output
 - Your FINAL message is narrated aloud by the voice layer, so make it a tight 1–3 sentence summary in plain spoken English. No code blocks, no file dumps, no markdown — just what you found / decided / recommend.
@@ -321,6 +382,9 @@ async function getAgent(): Promise<Agent> {
       // §10). Structured layout/design still prefers Pencil (per the persona).
       // No executor: it's a HostedTool, run by the model server-side.
       imageGenerationTool(),
+      // The bridge that makes the Brain's work visible (moodboards, gantt,
+      // code, diagrams) by driving the Canvas window directly.
+      showCanvasTool,
     ],
     mcpServers: pencilServer ? [pencilServer] : [],
   });
