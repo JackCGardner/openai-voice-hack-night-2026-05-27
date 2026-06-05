@@ -28,7 +28,11 @@ import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import type { AgentId, AgentRole } from '../shared/state.js';
 import type { CodexEvent, CodexEventType } from '../shared/codex.js';
-import { createWorktree, type WorktreeHandle } from './codex-worktree.js';
+import {
+  createWorktree,
+  ensureDispatchTarget,
+  type WorktreeHandle,
+} from './codex-worktree.js';
 
 // ─── Public types ──────────────────────────────────────────────────────
 
@@ -41,8 +45,21 @@ export interface DispatchAgentRequest {
   task: string;
   /** Absolute path to the target repo (the user's current project / roaming cwd). */
   targetRepo: string;
-  /** Optional base branch (default 'main'). */
+  /** Optional base branch (default = the target repo's resolved current branch). */
   baseBranch?: string;
+  /**
+   * finish-spec §B.3 — isolation mode (append-only field; default `false`).
+   *   - `false` (DEFAULT): SHARED mode — the agent works directly in
+   *     `targetRepo`; commits land on the target branch as it goes. No
+   *     worktree is created and nothing is torn down at the end (the work
+   *     stays in the user's dir — that's the point).
+   *   - `true`: WORKTREE mode — a per-agent worktree on
+   *     `director/<sessionId>/<agentId>`; on completion the existing
+   *     `batch_completed` → `mergeFanIn` path auto-merges back to the base
+   *     branch (the dispatcher MUST set a `batchId` so the synthetic
+   *     `batch_completed` fires). The worktree is ephemeral.
+   */
+  useWorktree?: boolean;
   /**
    * Optional batch identifier — when set, the dispatched agent is tracked
    * under that batch and a synthetic `batch_completed` event fires once
@@ -98,9 +115,17 @@ export function buildAgentsMd(
   name: string,
   role: AgentRole,
   task: string,
+  opts?: { worktree?: boolean },
 ): string {
   const key = String(role).toLowerCase();
   const template = AGENT_TEMPLATES[key] ?? FALLBACK_TEMPLATE;
+  // finish-spec §B.4 — worktree agents are on a short-lived branch that
+  // auto-merges at fan-in, so they must commit each logical change
+  // immediately or it's lost. Shared-mode agents keep the standard atomic
+  // commit guidance (their commits land directly on the user's branch).
+  const commitLine = opts?.worktree
+    ? '- You are on a short-lived branch that auto-merges when you finish — commit each logical change immediately so nothing is lost at fan-in.'
+    : '- Commit atomically: one logical change per commit.';
   return `# AGENTS.md — ${name} (${role})
 
 You are **${name}**, the ${role} agent on the Director team.
@@ -117,7 +142,7 @@ ${task}
 ## Boundaries
 - Do not reference your name or persona inside code (no \`// ${name} was here\`).
 - Match the existing project conventions (lint rules, file structure, naming).
-- Commit atomically: one logical change per commit.
+${commitLine}
 - If you genuinely need to ask a clarifying question, end your final message with a JSON object \`{ "blocker": "<short question>" }\` so the orchestrator can escalate via voice.
 `;
 }
@@ -137,6 +162,19 @@ export function getCodex(): Codex {
     codex = new Codex({ apiKey });
   }
   return codex;
+}
+
+/**
+ * Test-only seam: inject a fake `Codex` so `dispatchAgentCore` can be driven
+ * headlessly (no SDK, no network) to assert the shared-vs-worktree mode
+ * switch. Pass `null` to restore the real lazy singleton. Returns a restore fn.
+ */
+export function _setCodexForTests(fake: Codex | null): () => void {
+  const prev = codex;
+  codex = fake;
+  return () => {
+    codex = prev;
+  };
 }
 
 // ─── Semaphore ────────────────────────────────────────────────────────
@@ -170,7 +208,8 @@ function release(): void {
 // ─── Live agent state ─────────────────────────────────────────────────
 
 interface AgentRecord {
-  handle: WorktreeHandle;
+  /** Worktree handle in worktree mode; null in shared mode (nothing to clean up). */
+  handle: WorktreeHandle | null;
   thread: Thread;
   abort: AbortController;
   finished: boolean;
@@ -294,31 +333,57 @@ export async function dispatchAgentCore(
   onEvent = (ev) =>
     wrapEmitForBatch(req.batchId, req.agentId, innerEmit, ev);
 
+  const useWorktree = req.useWorktree ?? false;
   let acquired = false;
   let handle: WorktreeHandle | null = null;
   try {
     await acquire();
     acquired = true;
 
-    handle = await createWorktree({
-      sessionId,
-      agentId: req.agentId,
-      targetRepo: req.targetRepo,
-      baseBranch: req.baseBranch,
+    // finish-spec §B.3 — make the target dispatch-ready (git init a non-repo,
+    // guarantee a base ref). NEVER fail with "must be a git repo". Resolve the
+    // base branch from the repo's actual current branch, not a hardcoded
+    // `main` — a freshly-init'd repo may be on `master` or a user default.
+    const prep = await ensureDispatchTarget(req.targetRepo, {
+      worktree: useWorktree,
     });
+    const baseBranch = req.baseBranch ?? prep.branch;
+
+    // finish-spec §B.3 mode switch. Shared mode (default): the agent works
+    // directly in targetRepo. Worktree mode (opt-in): isolated per-agent
+    // worktree that auto-merges on completion via the batch fan-in.
+    let workingDirectory: string;
+    let branch: string;
+    if (useWorktree) {
+      handle = await createWorktree({
+        sessionId,
+        agentId: req.agentId,
+        targetRepo: req.targetRepo,
+        baseBranch,
+      });
+      workingDirectory = handle.path;
+      branch = handle.branch;
+    } else {
+      // SHARED MODE — commits land on the target branch directly.
+      workingDirectory = req.targetRepo;
+      branch = baseBranch;
+    }
 
     await fs.writeFile(
-      join(handle.path, 'AGENTS.md'),
-      buildAgentsMd(req.name, req.role, req.task),
+      join(workingDirectory, 'AGENTS.md'),
+      buildAgentsMd(req.name, req.role, req.task, { worktree: useWorktree }),
       'utf8',
     );
 
     const abort = new AbortController();
     const thread = getCodex().startThread({
-      workingDirectory: handle.path,
+      workingDirectory,
       sandboxMode: 'workspace-write',
       approvalPolicy: 'never',
-      skipGitRepoCheck: false,
+      // ensureDispatchTarget guarantees a repo first, so we never rely on the
+      // SDK's pre-check to enforce it — setting this true means a transient
+      // probe race can't reject the dispatch (finish-spec §B.3).
+      skipGitRepoCheck: true,
     });
 
     let resolveDone: () => void = () => {};
@@ -342,8 +407,12 @@ export async function dispatchAgentCore(
         name: req.name,
         role: req.role,
         task: req.task,
-        worktree: handle.path,
-        branch: handle.branch,
+        // In worktree mode this is the worktree checkout; in shared mode it's
+        // the target dir itself. The batch fan-in only fires for worktree
+        // agents (they carry a batchId), so `recordBatchWorktree` reads the
+        // worktree path/branch from here.
+        worktree: workingDirectory,
+        branch,
       },
       at: Date.now(),
     });
@@ -383,19 +452,28 @@ export async function dispatchAgentCore(
         }
       } finally {
         record.finished = true;
-        // § gap 13 — defer cleanup for batched agents. If this agent
-        // belongs to a batch, DO NOT tear down the worktree here: the
-        // synthetic `batch_completed` consumer (worktree-merger fan-in)
-        // needs the branch + worktree dir intact to compute diffs and
-        // merge. We stash the live handle on the batch record and the
-        // consumer calls `releaseBatchWorktrees(batchId)` post-merge.
-        // Non-batched agents keep the original eager cleanup.
-        const deferred = stashHandleForBatch(req.batchId, req.agentId, record.handle);
-        if (!deferred) {
-          try {
-            await record.handle.cleanup();
-          } catch (err) {
-            console.warn('[codex-pool-core] worktree cleanup failed', err);
+        // finish-spec §B.3 — cleanup is WORKTREE-ONLY. In shared mode
+        // `record.handle` is null: the work stays in the user's dir (that's
+        // the point), so there's nothing to tear down. In worktree mode:
+        // § gap 13 — defer cleanup for batched agents. If this agent belongs
+        // to a batch, DO NOT tear down the worktree here: the synthetic
+        // `batch_completed` consumer (worktree-merger fan-in) needs the
+        // branch + worktree dir intact to compute diffs and merge. We stash
+        // the live handle on the batch record and the consumer calls
+        // `releaseBatchWorktrees(batchId)` post-merge. Non-batched worktree
+        // agents keep the eager cleanup.
+        if (record.handle) {
+          const deferred = stashHandleForBatch(
+            req.batchId,
+            req.agentId,
+            record.handle,
+          );
+          if (!deferred) {
+            try {
+              await record.handle.cleanup();
+            } catch (err) {
+              console.warn('[codex-pool-core] worktree cleanup failed', err);
+            }
           }
         }
         onEvent({
@@ -410,11 +488,13 @@ export async function dispatchAgentCore(
       }
     })();
 
+    // DispatchAck.worktree is the working directory: the worktree path in
+    // worktree mode, the target dir in shared mode (finish-spec §B.3).
     return {
       ok: true,
       agentId: req.agentId,
-      worktree: handle.path,
-      branch: handle.branch,
+      worktree: workingDirectory,
+      branch,
     };
   } catch (err) {
     if (handle) {
@@ -476,19 +556,25 @@ export async function killAgentCore(
     return { ok: false, error: `agent ${agentId} not running` };
   }
   let archivedTo: string | undefined;
-  try {
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    const dest = join(abandonedRoot(), `${ts}-${agentId}`);
-    await fs.mkdir(dirname(dest), { recursive: true });
-    // Copy the worktree contents (the git worktree dir gets removed by the
-    // finally{} cleanup; the archive is an independent snapshot).
-    await fs.cp(rec.handle.path, dest, { recursive: true });
-    archivedTo = dest;
-  } catch (err) {
-    console.warn(
-      `[codex-pool-core] kill archive failed for ${agentId}`,
-      err,
-    );
+  // Archive is WORKTREE-ONLY: a worktree gets torn down by the finally{}
+  // cleanup, so we snapshot it first. In shared mode (`rec.handle` null) the
+  // work lives in the user's own dir and is NOT removed on kill — there's
+  // nothing to archive (and copying the whole project dir would be wrong).
+  if (rec.handle) {
+    try {
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const dest = join(abandonedRoot(), `${ts}-${agentId}`);
+      await fs.mkdir(dirname(dest), { recursive: true });
+      // Copy the worktree contents (the git worktree dir gets removed by the
+      // finally{} cleanup; the archive is an independent snapshot).
+      await fs.cp(rec.handle.path, dest, { recursive: true });
+      archivedTo = dest;
+    } catch (err) {
+      console.warn(
+        `[codex-pool-core] kill archive failed for ${agentId}`,
+        err,
+      );
+    }
   }
   // Clear any hang-fired flag so we don't re-escalate during teardown.
   hangState.hangFired.delete(agentId);

@@ -110,6 +110,10 @@ describe('codex-pool-core hang resolution (kill / extend / DIRECTOR_TEST_HANG)',
       now: () => now,
     });
 
+    // useWorktree:true — kill-archive is a WORKTREE-mode concept (finish-spec
+    // §B.3: shared-mode work lives in the user's own dir and is never
+    // archived/torn down). The worktree gets snapshotted to ~/.director/
+    // abandoned/ on kill, then removed by the finally{} cleanup.
     const ack = await dispatchAgentCore(
       {
         agentId: 'maya',
@@ -117,6 +121,7 @@ describe('codex-pool-core hang resolution (kill / extend / DIRECTOR_TEST_HANG)',
         role: 'Frontend',
         task: 'do nothing — this agent is set to deliberately hang',
         targetRepo: repoRoot,
+        useWorktree: true,
       },
       'hang-test-session',
       (ev) => seen.push(ev),

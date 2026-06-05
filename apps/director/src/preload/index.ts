@@ -9,7 +9,6 @@ import {
   type AskAnswerPayload,
   type AskShowPayload,
   type DirectorBridge,
-  type DormantState,
   type HotkeyListener,
   type ToolCallRequest,
   type ToolCallResponse,
@@ -47,12 +46,6 @@ const api: DirectorBridge = {
     const listener = (): void => cb();
     ipcRenderer.on(IpcChannel.HotkeyPressed, listener);
     return () => ipcRenderer.removeListener(IpcChannel.HotkeyPressed, listener);
-  },
-  requestSummon(): Promise<void> {
-    return ipcRenderer.invoke(IpcChannel.RequestSummon);
-  },
-  getDormantState(): Promise<DormantState> {
-    return ipcRenderer.invoke(IpcChannel.GetDormantState);
   },
   realtime: {
     mintToken(req?: RealtimeSessionRequest): Promise<RealtimeEphemeralToken> {

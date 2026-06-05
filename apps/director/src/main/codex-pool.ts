@@ -145,8 +145,13 @@ export function registerCodexPoolIpc(w: BrowserWindow | null): void {
 //                     non-conflicting ones is left to a future pass — we
 //                     keep all on disk to be safe.
 
-/** Integration branch the fan-in merges into. Defaults to 'main'. */
-const FAN_IN_INTEGRATION_BRANCH = 'main';
+// finish-spec §B.4 — the fan-in integration branch is NOT hardcoded. We pass
+// `repoRoot` and let `mergeFanIn` default `integrationBranch` to that repo's
+// ACTUAL current branch (worktree-merger.ts:247-248 → `currentBranch(repoRoot)`).
+// A freshly git-init'd target may be on `master` or a user default, not `main`;
+// hardcoding `main` would merge into a branch that doesn't exist. This label is
+// only the human-readable fallback in log lines when the result omits one.
+const FAN_IN_BRANCH_LABEL = 'the base branch';
 
 /**
  * Injectable merge driver — production uses `mergeFanIn`; unit tests inject
@@ -192,9 +197,12 @@ export async function onBatchCompleted(event: CodexEvent): Promise<void> {
 
   let result: MergeResult;
   try {
+    // finish-spec §B.4 — do NOT pass an explicit integrationBranch. Passing
+    // `repoRoot` lets mergeFanIn resolve the target repo's actual current
+    // branch as the integration branch (its smart default), rather than
+    // forcing `main` (which may not exist in a freshly-init'd dir).
     result = await mergeDriver(worktrees, {
       autoMergeIfNonOverlapping: true,
-      integrationBranch: FAN_IN_INTEGRATION_BRANCH,
       ...(repoRoot ? { repoRoot } : {}),
     });
   } catch (err) {
@@ -204,7 +212,7 @@ export async function onBatchCompleted(event: CodexEvent): Promise<void> {
 
   if (result.mode === 'auto-merge') {
     console.log(
-      `[codex-pool] fan-in auto-merged batch ${batchId} → ${result.integrationBranch ?? FAN_IN_INTEGRATION_BRANCH}@${result.sha ?? '?'} (${result.agents.join(', ')})`,
+      `[codex-pool] fan-in auto-merged batch ${batchId} → ${result.integrationBranch ?? FAN_IN_BRANCH_LABEL}@${result.sha ?? '?'} (${result.agents.join(', ')})`,
     );
     // Advisory 16 — release (git worktree remove + branch -D) each merged
     // worktree now that its commits live on the integration branch.

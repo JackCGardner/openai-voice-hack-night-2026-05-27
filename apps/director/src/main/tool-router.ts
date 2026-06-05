@@ -64,6 +64,14 @@ import { dispatchAgentReal, resolveTargetRepo } from './agent-tools.js';
 import { dispatchAgent } from './codex-pool.js';
 import { getSessionId } from './side-store.js';
 import { homedir } from 'node:os';
+// ─── § cwd-first-dispatch (Integrate wave — finish-spec §B.1) ─────────────
+// The brain's live roaming-shell cwd is the single source of truth for "where
+// work happens". The realtime dispatch_agent_mock path resolves the target via
+// resolveTargetRepo({ brainCwd: getBrainCwd(), home }) so a voice "send Maya
+// in" lands in the SAME directory the brain just made/entered — instead of the
+// old $HOME-only target that ignored where the brain roamed. getBrainCwd is a
+// pure getter (no electron) exported from agent-brain.
+import { getBrainCwd } from './agent-brain.js';
 
 const ASK_TIMEOUT_MS = 60_000;
 
@@ -152,6 +160,13 @@ interface DispatchAgentMockArgs {
   /** Closed enum of canonical agents — schema constrains to maya/jin/cleo/wren. */
   agent: string;
   task: string;
+  /**
+   * finish-spec §B.3/§D — opt voice dispatch into worktree isolation. Default
+   * (absent/false) = SHARED mode: the agent works directly in the resolved cwd
+   * and commits land on its branch. true = isolated worktree that auto-merges
+   * back on completion (the router sets a batchId so the fan-in fires).
+   */
+  use_worktree?: boolean;
 }
 
 interface AskUserArgs {
@@ -228,19 +243,29 @@ async function handleDispatchAgentMock(
   const identity = resolveIdentity(args.agent);
 
   // Real dispatch ONLY — drives the codex-pool to spawn an actual Codex
-  // subprocess in a git worktree. The pool emits codex.event { agent_started }
-  // → ipcSync.handleCodexEvent → commands.addAgent, so we do NOT add a
-  // synthetic agent here. targetRepo is the user's project root
-  // (DIRECTOR_PROJECT_ROOT) or the roaming cwd; if that isn't a git repo the
-  // pool returns ok:false and Director narrates the failure ("point me at a
-  // project first"). No mock, no sim — this is real end to end.
+  // subprocess. The pool emits codex.event { agent_started } →
+  // ipcSync.handleCodexEvent → commands.addAgent, so we do NOT add a synthetic
+  // agent here. targetRepo resolves cwd-first (finish-spec §B.1): the brain's
+  // live roaming-shell cwd (getBrainCwd) → DIRECTOR_PROJECT_ROOT → $HOME, so a
+  // voice "send Maya in" lands where the brain has been working. The pool's
+  // ensureDispatchTarget git-inits a non-repo dir, so there's no "must be a
+  // git repo" failure. Default isolation is SHARED (commits land directly);
+  // voice opts into worktree mode via use_worktree. No mock, no sim.
+  const useWorktree = args.use_worktree === true;
   const res = await dispatchAgentReal(
     {
       agentId: identity.id,
       name: identity.name,
       role: identity.role,
       task: args.task,
-      targetRepo: resolveTargetRepo(homedir()),
+      targetRepo: resolveTargetRepo({ brainCwd: getBrainCwd(), home: homedir() }),
+      ...(useWorktree ? { useWorktree: true } : {}),
+      // Worktree mode needs a batchId so the synthetic batch_completed →
+      // mergeFanIn auto-merge fires (it only synthesizes for batched agents —
+      // finish-spec §B.4). Single-agent voice dispatch = a one-agent batch.
+      ...(useWorktree
+        ? { batchId: `voice-${getSessionId() ?? 'nosession'}-${Date.now()}` }
+        : {}),
     },
     getSessionId() ?? '',
     dispatchAgent,

@@ -5,7 +5,6 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   IpcChannel,
-  type DormantState,
   type ToolCallRequest,
   type ToolCallResponse,
   type MicStatusPayload,
@@ -309,14 +308,6 @@ function registerDevCanvasShortcuts(): void {
 }
 
 function registerIpcHandlers(): void {
-  ipcMain.handle(IpcChannel.GetDormantState, async (): Promise<DormantState> => {
-    return { dormant: true };
-  });
-
-  ipcMain.handle(IpcChannel.RequestSummon, async (): Promise<void> => {
-    console.log('[director] summon requested (stub)');
-  });
-
   ipcMain.handle(
     IpcChannel.RealtimeMintToken,
     async (evt, req: RealtimeSessionRequest = {}): Promise<RealtimeEphemeralToken> => {

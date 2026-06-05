@@ -35,8 +35,6 @@ import type { CodexEvent } from './codex.js';
 export const IpcChannel = {
   // ─── Legacy boilerplate (W1 scaffolding) ──────────────────────────────
   HotkeyPressed: 'director:hotkey-pressed',
-  GetDormantState: 'director:get-dormant-state',
-  RequestSummon: 'director:request-summon',
   RealtimeMintToken: 'director:realtime-mint-token',
 
   // ─── realtime.* ───────────────────────────────────────────────────────
@@ -462,10 +460,6 @@ export interface AskAnswerPayload {
 
 // ─── Legacy boilerplate types (W1 scaffolding) ───────────────────────────
 
-export interface DormantState {
-  dormant: boolean;
-}
-
 export type HotkeyListener = () => void;
 
 /**
@@ -476,10 +470,6 @@ export type HotkeyListener = () => void;
 export interface DirectorBridge {
   /** Subscribe to hotkey events from main. Returns an unsubscribe fn. */
   onHotkey: (cb: HotkeyListener) => () => void;
-  /** Request main to attempt a "summon" (programmatic open). */
-  requestSummon: () => Promise<void>;
-  /** One-shot read of main's dormant-state estimate. */
-  getDormantState: () => Promise<DormantState>;
   /** Realtime ephemeral-token broker (W1). */
   realtime: {
     mintToken: (req?: RealtimeSessionRequest) => Promise<RealtimeEphemeralToken>;
@@ -675,8 +665,6 @@ export interface PttSignalPayload {
 
 /** Invoke-style channels (request → ack). */
 export interface IpcInvokeMap {
-  [IpcChannel.GetDormantState]: { request: void; response: DormantState };
-  [IpcChannel.RequestSummon]: { request: void; response: void };
   [IpcChannel.RealtimeMintToken]: {
     request: RealtimeSessionRequest | undefined;
     response: RealtimeEphemeralToken;

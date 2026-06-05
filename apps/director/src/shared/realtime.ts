@@ -155,6 +155,17 @@ export function realtimeToolDefs(): Array<Record<string, unknown>> {
             type: 'string',
             description: "One-line task description in the user's words.",
           },
+          // ─── § cwd-first-dispatch (Integrate wave — finish-spec §B.3/§D) ──
+          // Optional isolation flag. Omit (default) = SHARED mode: the agent
+          // works directly in the resolved working dir and commits land on its
+          // branch. true = isolated worktree that auto-merges back when the
+          // agent finishes. Almost always omit; only set when the user
+          // explicitly wants isolated/parallel work that merges at the end.
+          use_worktree: {
+            type: 'boolean',
+            description:
+              'Optional. Leave unset for normal work (the agent commits directly in the project). Set true only when the user wants the agent isolated in a worktree that auto-merges back when it finishes.',
+          },
         },
         required: ['agent', 'task'],
       },

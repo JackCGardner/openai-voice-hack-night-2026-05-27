@@ -179,20 +179,77 @@ describe('dispatchAgentReal', () => {
   });
 });
 
-describe('resolveTargetRepo', () => {
+describe('resolveTargetRepo (cwd-first precedence — finish-spec §B.1)', () => {
   const orig = process.env.DIRECTOR_PROJECT_ROOT;
   afterEach(() => {
     if (orig === undefined) delete process.env.DIRECTOR_PROJECT_ROOT;
     else process.env.DIRECTOR_PROJECT_ROOT = orig;
   });
 
-  it('prefers DIRECTOR_PROJECT_ROOT when set', () => {
-    process.env.DIRECTOR_PROJECT_ROOT = '/Users/dev/foo';
-    expect(resolveTargetRepo('/Users/dev')).toBe('/Users/dev/foo');
+  it('explicit wins over everything (brainCwd, env, home)', () => {
+    process.env.DIRECTOR_PROJECT_ROOT = '/Users/dev/env';
+    expect(
+      resolveTargetRepo({
+        explicit: '/Users/dev/explicit',
+        brainCwd: '/Users/dev/brain',
+        home: '/Users/dev',
+      }),
+    ).toBe('/Users/dev/explicit');
   });
 
-  it('falls back to the home dir when unset', () => {
+  it('brainCwd wins over DIRECTOR_PROJECT_ROOT + home when no explicit', () => {
+    process.env.DIRECTOR_PROJECT_ROOT = '/Users/dev/env';
+    expect(
+      resolveTargetRepo({ brainCwd: '/Users/dev/brain', home: '/Users/dev' }),
+    ).toBe('/Users/dev/brain');
+  });
+
+  it('prefers DIRECTOR_PROJECT_ROOT when set and no explicit/brainCwd', () => {
+    process.env.DIRECTOR_PROJECT_ROOT = '/Users/dev/foo';
+    expect(resolveTargetRepo({ home: '/Users/dev' })).toBe('/Users/dev/foo');
+  });
+
+  it('falls back to the home dir when nothing else is set', () => {
     delete process.env.DIRECTOR_PROJECT_ROOT;
-    expect(resolveTargetRepo('/Users/dev')).toBe('/Users/dev');
+    expect(resolveTargetRepo({ home: '/Users/dev' })).toBe('/Users/dev');
+  });
+
+  it('ignores empty-string explicit/brainCwd (treats them as unset)', () => {
+    delete process.env.DIRECTOR_PROJECT_ROOT;
+    expect(
+      resolveTargetRepo({ explicit: '', brainCwd: '', home: '/Users/dev' }),
+    ).toBe('/Users/dev');
+  });
+});
+
+describe('dispatchAgentReal — useWorktree threading (finish-spec §B.3)', () => {
+  const base = {
+    agentId: 'maya',
+    name: 'Maya',
+    role: 'Frontend' as const,
+    task: 'build the strip',
+    targetRepo: '/Users/dev/project',
+  };
+
+  it('threads useWorktree:true through to the driver when opted in', async () => {
+    const dispatch = vi.fn<DispatchAgentDriver>(async () => ({
+      ok: true as const,
+      agentId: 'maya',
+      worktree: '/wt/maya',
+      branch: 'b',
+    }));
+    await dispatchAgentReal({ ...base, useWorktree: true }, 's', dispatch);
+    expect(dispatch.mock.calls[0]![0]).toMatchObject({ useWorktree: true });
+  });
+
+  it('omits useWorktree from the request when not opted in (shared default)', async () => {
+    const dispatch = vi.fn<DispatchAgentDriver>(async () => ({
+      ok: true as const,
+      agentId: 'maya',
+      worktree: '/wt/maya',
+      branch: 'b',
+    }));
+    await dispatchAgentReal(base, 's', dispatch);
+    expect(dispatch.mock.calls[0]![0]).not.toHaveProperty('useWorktree');
   });
 });

@@ -71,11 +71,134 @@ function agentRoot(sessionId: string, agentId: string): string {
   return join(sessionRoot(sessionId), 'agents', agentId);
 }
 
+// ─── Target-dir preparation (git-init-if-needed) ────────────────────────
+//
+// finish-spec §B.3. Dispatch must NOT hard-require a pre-existing git repo.
+// The brain may `mkdir -p x && cd x` a brand-new folder and then dispatch a
+// Codex agent into it. `ensureDispatchTarget` makes that dir dispatch-ready:
+// it creates the dir, `git init`s it if it isn't already a repo (staging +
+// committing whatever the brain put there so there's a base ref), and — for
+// worktree mode — guarantees at least one commit so `git worktree add <base>`
+// has something to branch from. It NEVER throws "must be a git repo"; a
+// non-repo target is initialized, not rejected.
+
+export interface EnsureDispatchTargetResult {
+  /** Always true on success — the dir is a repo with ≥1 commit afterwards. */
+  isRepo: true;
+  /** Whether we had to `git init` (true) or it was already a repo (false). */
+  hadToInit: boolean;
+  /** The repo's current branch after preparation (the dispatch base branch). */
+  branch: string;
+}
+
+/** True if `dir` is inside a git work tree (exit 0 from rev-parse). */
+async function isGitRepo(dir: string): Promise<boolean> {
+  const r = await run('git', ['rev-parse', '--is-inside-work-tree'], dir);
+  return r.code === 0 && r.stdout.trim() === 'true';
+}
+
+/** True if `dir`'s HEAD resolves to a commit (i.e. the repo has ≥1 commit). */
+async function hasCommits(dir: string): Promise<boolean> {
+  const r = await run('git', ['rev-parse', '--verify', '--quiet', 'HEAD'], dir);
+  return r.code === 0 && r.stdout.trim().length > 0;
+}
+
+/**
+ * Resolve a repo's current branch name (`git rev-parse --abbrev-ref HEAD`).
+ * On a freshly-init'd repo with no commits the symbolic ref still resolves
+ * (e.g. `main` or `master`) so worktree/base-branch logic has a name to use.
+ * Falls back to `main` only if git produces nothing parseable.
+ */
+export async function currentBranchOf(dir: string): Promise<string> {
+  const r = await run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], dir);
+  const name = r.stdout.trim();
+  if (r.code === 0 && name && name !== 'HEAD') return name;
+  // Detached HEAD or unborn-but-unnamed: try the symbolic-ref short form.
+  const sym = await run('git', ['symbolic-ref', '--short', 'HEAD'], dir);
+  const symName = sym.stdout.trim();
+  if (sym.code === 0 && symName) return symName;
+  return 'main';
+}
+
+/**
+ * Make `dir` dispatch-ready (finish-spec §B.3). Idempotent: an existing repo
+ * with commits is left untouched (HEAD unchanged). A non-repo is `git init`'d
+ * and gets an initial commit (staging anything already in the dir). In
+ * worktree mode we additionally guarantee a base commit exists so
+ * `git worktree add <base>` has a ref to branch from.
+ *
+ * Never rejects a non-repo — that's the whole point. Throws only on a genuine
+ * git failure (e.g. git not installed), which the caller surfaces as a
+ * dispatch error.
+ */
+export async function ensureDispatchTarget(
+  dir: string,
+  opts?: { worktree?: boolean },
+): Promise<EnsureDispatchTargetResult> {
+  await fs.mkdir(dir, { recursive: true });
+
+  const alreadyRepo = await isGitRepo(dir);
+  if (!alreadyRepo) {
+    const init = await run('git', ['init'], dir);
+    if (init.code !== 0) {
+      throw new Error(
+        `[codex-worktree] git init failed in ${dir} (${init.code}): ${init.stderr.trim()}`,
+      );
+    }
+    // Stage whatever the brain already created in this folder, then commit so
+    // there's a base ref. `--allow-empty` covers a truly empty new dir.
+    await run('git', ['add', '-A'], dir);
+    const commit = await run(
+      'git',
+      ['commit', '--allow-empty', '-m', 'Director: initial commit'],
+      dir,
+    );
+    if (commit.code !== 0) {
+      // A commit can fail if user.name/user.email are unset. Configure a
+      // local identity (scoped to this repo only) and retry — we must not
+      // leave the repo without a base ref or `git worktree add` will fail.
+      await run('git', ['config', 'user.email', 'director@localhost'], dir);
+      await run('git', ['config', 'user.name', 'Director'], dir);
+      const retry = await run(
+        'git',
+        ['commit', '--allow-empty', '-m', 'Director: initial commit'],
+        dir,
+      );
+      if (retry.code !== 0) {
+        throw new Error(
+          `[codex-worktree] initial commit failed in ${dir} (${retry.code}): ${retry.stderr.trim()}`,
+        );
+      }
+    }
+  } else if (opts?.worktree && !(await hasCommits(dir))) {
+    // Existing repo with an unborn HEAD (init'd but never committed) + worktree
+    // mode → give `git worktree add` a base ref.
+    const commit = await run(
+      'git',
+      ['commit', '--allow-empty', '-m', 'Director: base'],
+      dir,
+    );
+    if (commit.code !== 0) {
+      await run('git', ['config', 'user.email', 'director@localhost'], dir);
+      await run('git', ['config', 'user.name', 'Director'], dir);
+      await run('git', ['commit', '--allow-empty', '-m', 'Director: base'], dir);
+    }
+  }
+
+  const branch = await currentBranchOf(dir);
+  return { isRepo: true, hadToInit: !alreadyRepo, branch };
+}
+
 /**
  * Create an isolated git worktree under
  * `~/.director/sessions/<sessionId>/agents/<agentId>/worktree/`.
  * Throws on git failure — caller is responsible for releasing any
  * acquired semaphore slot.
+ *
+ * NOTE: callers should `ensureDispatchTarget(targetRepo, { worktree: true })`
+ * first so a fresh/empty dir has a base ref. `baseBranch` should be the repo's
+ * RESOLVED current branch (via `currentBranchOf`), not a hardcoded `main` — a
+ * freshly-init'd repo may be on `master` or a user default.
  */
 export async function createWorktree(
   opts: WorktreeOpts,

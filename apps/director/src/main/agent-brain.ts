@@ -87,7 +87,7 @@ function isCatastrophic(command: string): boolean {
 
 // ─── Generated-image persistence (real `generate_image` tool, finish-spec §A) ─
 // The brain can't call a TS function, so image generation is a real local
-// FUNCTION tool (`generate_image`, below) whose executor runs in THIS main
+// FUNCTION tool (`generate_image`, below) whose executor runs in this main
 // process: it calls the OpenAI Images API, hands the base64 bytes to THIS
 // helper to persist on disk, and RETURNS a renderable image reference to the
 // brain. The Canvas CSP (`img-src 'self' data: blob:` — canvas.html) blocks
@@ -295,6 +295,52 @@ const showCanvasTool = tool({
   },
 });
 
+// ─── dispatch_agent — the brain dispatches a real Codex sub-agent (§B.2) ──
+// The brain needs to dispatch agents itself so "mkdir a folder, git init it,
+// then spin up the team there" is one flow it controls. The executor lives in
+// ./brain-dispatch.ts (lazy-imported so this module never eagerly pulls in
+// codex-pool's electron dependency — same trick show_canvas uses for canvas.js).
+// It targets getBrainCwd() (the brain's roaming shell cwd) and drives the SAME
+// codex-pool driver the realtime dispatch path uses.
+const dispatchAgentBrainTool = tool({
+  name: 'dispatch_agent',
+  description:
+    'Dispatch a real Codex coding sub-agent INTO your current working directory. ' +
+    "Use after you've made/entered the project folder in your shell (mkdir -p x && " +
+    'cd x; the folder is git-initialized for you if new). Pick the agent by role: ' +
+    'maya=frontend, jin=backend, cleo=data, wren=design. The agent works in your ' +
+    'cwd, commits as it goes, and its progress streams to the Hive. Returns the ' +
+    'agent id + branch.',
+  parameters: z.object({
+    agent: z.enum(['maya', 'jin', 'cleo', 'wren']),
+    task: z
+      .string()
+      .describe('A complete, self-contained task brief for the agent.'),
+    use_worktree: z
+      .boolean()
+      .nullable()
+      .describe(
+        'Default false = work in the shared cwd (commits land directly). true = isolated worktree that auto-merges back when the agent finishes.',
+      ),
+  }),
+  async execute({ agent, task, use_worktree }) {
+    try {
+      const { dispatchFromBrain } = await import('./brain-dispatch.js');
+      const r = await dispatchFromBrain({
+        agent,
+        task,
+        useWorktree: use_worktree ?? false,
+      });
+      return JSON.stringify(r);
+    } catch (err) {
+      return JSON.stringify({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  },
+});
+
 // ─── Local shell executor (full system access) ──────────────────────────
 
 type ExecResult = {
@@ -370,18 +416,38 @@ function execOne(command: string, cwd: string, timeoutMs: number): Promise<ExecR
   });
 }
 
+// ─── Brain working directory — the single source of truth (finish-spec §B.1) ─
+// The brain's shell cwd is "where work happens". It persists across commands
+// AND across consults (one long-lived terminal). It used to be a private
+// closure variable inside makeLocalShell; we lift it to module scope and
+// expose a getter so the dispatch path (the brain's own `dispatch_agent` tool
+// AND the realtime `dispatch_agent_mock` via the cwd-first resolver) can target
+// wherever the brain last roamed — "make a folder and spin up the team there"
+// and a voice "send Maya in" land in the SAME directory.
+let brainShellCwd = startDir();
+
+/**
+ * The brain's current roaming-shell working directory. Both dispatch entry
+ * points consult this so agents land where the brain has been working. If the
+ * brain has issued no `cd` yet, this is its start dir (process cwd /
+ * DIRECTOR_PROJECT_ROOT / $HOME). Live: reflects the latest command's `cd`.
+ */
+export function getBrainCwd(): string {
+  return brainShellCwd;
+}
+
 function makeLocalShell(startCwd: string): Shell {
-  // The working directory PERSISTS across commands AND across consults — the
-  // brain has one long-lived terminal session. Directing it ("work in ~/dev/x",
-  // "make a new folder") moves this cwd and it stays there.
-  let currentCwd = startCwd;
+  // Seed the shared cwd to this shell's start dir. The per-command sentinel
+  // logic in execOne still recovers the post-command $PWD; we just lift the
+  // variable to module scope so getBrainCwd() reads the latest value.
+  brainShellCwd = startCwd;
   return {
     async run(action: ShellAction): Promise<ShellResult> {
       const timeoutMs = action.timeoutMs ?? DEFAULT_CMD_TIMEOUT_MS;
       const output = [];
       for (const command of action.commands) {
-        const res = await execOne(command, currentCwd, timeoutMs);
-        currentCwd = res.cwd;
+        const res = await execOne(command, brainShellCwd, timeoutMs);
+        brainShellCwd = res.cwd;
         output.push({ stdout: res.stdout, stderr: res.stderr, outcome: res.outcome });
       }
       return { output };
@@ -411,7 +477,8 @@ const BRAIN_INSTRUCTIONS = `You are the Director's deep brain — the manager's 
 
 # When to do it yourself vs hand to Codex
 - DO IT YOURSELF (you have a full shell + Pencil + image-gen): investigate the codebase, run git / tsc / tests, do online research, make LIGHT / SURGICAL edits, run quick experiments, design visuals in Pencil. You resolve in seconds-to-minutes — that's your lane. Investigate before you answer; don't guess.
-- HAND TO THE CODEX FLEET the heavy, long-running, multi-file execution — building a whole feature, generating many files, a deep refactor, work that parallelizes across Maya (frontend) / Jin (backend) / Cleo (data) / Wren (design). Describe the breakdown (who does what); the system dispatches them. Don't hand-build for 30 minutes what the fleet should build; don't dispatch the fleet for a one-file fix you can make now.
+- HAND TO THE CODEX FLEET the heavy, long-running, multi-file execution — building a whole feature, generating many files, a deep refactor, work that parallelizes across Maya (frontend) / Jin (backend) / Cleo (data) / Wren (design). Don't hand-build for 30 minutes what the fleet should build; don't dispatch the fleet for a one-file fix you can make now.
+- TO DISPATCH, call the \`dispatch_agent\` tool ({ agent: maya|jin|cleo|wren, task }). It sends a REAL Codex agent into your CURRENT working directory — so first \`cd\` to where the work should happen (\`mkdir -p <dir> && cd <dir>\` for a new project; it's git-initialized for you if new), THEN dispatch. Give each agent a complete, self-contained task brief. By default agents share your cwd and commit directly; pass use_worktree:true for isolated work that auto-merges when they finish. Their progress streams to the Hive — you don't narrate it.
 
 # Showing plans and progress
 - When you break work into steps or a plan, SHOW it as a gantt via \`show_canvas\` — component:'gantt', props_json = JSON.stringify({ title, tasks: [{ id, label, owner, status }] }) — and re-show it with updated statuses as work advances (same task ids; statuses move planned → running → done). Never read a multi-step plan aloud; show it.
@@ -495,6 +562,9 @@ async function getAgent(): Promise<Agent> {
       // The bridge that makes the Brain's work visible (moodboards, gantt,
       // code, diagrams) by driving the Canvas window directly.
       showCanvasTool,
+      // Real Codex sub-agent dispatch into the brain's roaming cwd (finish-spec
+      // §B.2) — "mkdir a folder, then spin up the team there" in one flow.
+      dispatchAgentBrainTool,
     ],
     mcpServers: pencilServer ? [pencilServer] : [],
   });
@@ -543,6 +613,8 @@ export const _internals = {
   generateImageImpl,
   generateImageTool,
   IMAGE_MODEL,
+  getBrainCwd,
+  dispatchAgentBrainTool,
   _setImagesClientForTests(client: OpenAI | null) {
     imagesClient = client;
   },

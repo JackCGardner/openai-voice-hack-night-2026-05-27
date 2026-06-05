@@ -104,6 +104,13 @@ export interface RealDispatchArgs {
   targetRepo: string;
   baseBranch?: string;
   batchId?: string;
+  /**
+   * finish-spec §B.3 isolation mode (default `false` = shared cwd). Threaded
+   * through to `dispatchAgent`/`dispatchAgentCore` so the realtime path can
+   * opt into worktree isolation the same way the brain's `dispatch_agent`
+   * tool does. Append-only field; omitted → shared mode.
+   */
+  useWorktree?: boolean;
 }
 
 export type RealDispatchResult =
@@ -126,6 +133,7 @@ export type DispatchAgentDriver = (
     targetRepo: string;
     baseBranch?: string;
     batchId?: string;
+    useWorktree?: boolean;
   },
   sessionId: string,
 ) => Promise<
@@ -172,6 +180,10 @@ export async function dispatchAgentReal(
       targetRepo: args.targetRepo,
       ...(args.baseBranch ? { baseBranch: args.baseBranch } : {}),
       ...(args.batchId ? { batchId: args.batchId } : {}),
+      // Thread worktree mode only when explicitly opted in, so callers that
+      // don't set it produce the exact same request shape as before (shared
+      // mode is the pool default). finish-spec §B.3.
+      ...(args.useWorktree ? { useWorktree: true } : {}),
     },
     sessionId,
   );
@@ -187,15 +199,32 @@ export async function dispatchAgentReal(
 }
 
 /**
- * Resolve the target repo for a real dispatch (§3.3 + §5). Agents are
- * dispatched into wherever the user is currently working — the roaming cwd /
- * `DIRECTOR_PROJECT_ROOT` hint, defaulting to `$HOME`. This mirrors the Brain's
- * `startDir()` so the voice-dispatched agents land in the same place the Brain
- * roams. (We do NOT invent a project picker.)
+ * Resolve the target repo for a real dispatch (finish-spec §B.1). Agents are
+ * dispatched into wherever the work actually is. Precedence, highest first:
  *
- * `home` is injectable for tests.
+ *   1. `explicit`   — a directory the caller already resolved (e.g. the
+ *                     brain's `dispatch_agent` tool passes its own target).
+ *   2. `brainCwd`   — the brain's live roaming-shell cwd (`getBrainCwd()`),
+ *                     so a voice "send Maya in" lands in the SAME directory
+ *                     the brain just `mkdir`'d/`cd`'d into. THIS is the key
+ *                     change from the old `$HOME`-only resolver: the realtime
+ *                     `dispatch_agent_mock` path no longer ignores where the
+ *                     brain roamed.
+ *   3. DIRECTOR_PROJECT_ROOT — the optional static project hint.
+ *   4. `home`       — the final fallback ($HOME).
+ *
+ * `home` is required; the rest are optional/injectable so this stays
+ * Electron-free + unit-testable (no `agent-brain` import here — the caller
+ * passes `brainCwd: getBrainCwd()`).
  */
-export function resolveTargetRepo(home: string): string {
+export function resolveTargetRepo(opts: {
+  explicit?: string;
+  brainCwd?: string;
+  home: string;
+}): string {
+  if (opts.explicit && opts.explicit.length > 0) return opts.explicit;
+  if (opts.brainCwd && opts.brainCwd.length > 0) return opts.brainCwd;
   const hint = process.env.DIRECTOR_PROJECT_ROOT;
-  return hint && hint.length > 0 ? hint : home;
+  if (hint && hint.length > 0) return hint;
+  return opts.home;
 }
