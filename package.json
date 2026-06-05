@@ -5,7 +5,7 @@
   "packageManager": "pnpm@10.27.0",
   "scripts": {
     "dev": "pnpm --filter director dev",
-    "kill": "pkill -f \"openai-voice-hack-night-2026-05-27.*electron\" || true",
+    "kill": "sh scripts/kill-director.sh",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css,html}\" --ignore-path .gitignore",
