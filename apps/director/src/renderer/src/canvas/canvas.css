@@ -570,3 +570,270 @@
 .canvas-degrade-error {
   color: var(--status-blocked, #e8645a);
 }
+
+/* ─── § options-picker (voice-genui-spec §2.1) ──────────────────────────
+   Vertical list of selectable frosted option cards. Same card vocabulary as
+   the moodboard tiles, stacked. Locks after first selection (parent component
+   manages the lock; CSS handles selected/dimmed states). */
+
+.options-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+}
+
+.options-picker-question {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  letter-spacing: -0.005em;
+  line-height: 1.35;
+}
+
+.options-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.options-picker-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 0.5px solid var(--border-subtle);
+  background: rgba(28, 28, 32, 0.72);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  appearance: none;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  transition:
+    opacity 240ms var(--ease-smooth),
+    background 160ms var(--ease-smooth),
+    transform 160ms var(--ease-smooth);
+}
+
+.options-picker-card:hover:not(:disabled) {
+  background: rgba(40, 40, 46, 0.9);
+}
+
+.options-picker-card:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
+.options-picker-card:focus-visible {
+  outline: 2px solid var(--status-thinking);
+  outline-offset: 2px;
+}
+
+.options-picker-card.dimmed {
+  opacity: 0.4;
+}
+
+.options-picker-card.selected {
+  border-color: rgba(88, 214, 141, 0.3);
+  background: rgba(88, 214, 141, 0.12);
+}
+
+.options-picker-card:disabled {
+  cursor: default;
+}
+
+.options-picker-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.options-picker-detail {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.options-picker-halo {
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  pointer-events: none;
+  border: 2px solid var(--status-working);
+  box-shadow: 0 0 16px rgba(88, 214, 141, 0.4);
+}
+
+.options-picker-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+/* ─── § html-view (voice-genui-spec §2.2) ───────────────────────────────
+   Model-authored HTML inside a fully-sandboxed iframe (sandbox="", no
+   scripts, no same-origin). Inert markup + inline CSS only. */
+
+.html-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+}
+
+.html-view-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 0.5px solid var(--border-subtle);
+  border-radius: 14px;
+  background: rgba(248, 248, 250, 0.96);
+  -webkit-app-region: no-drag;
+}
+
+.html-view-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+/* ─── § code-preview + diagram-view (voice-genui-spec §2.3 / §2.4) ───────
+   Read-only display surfaces. Both are dark, frosted, monospaced panels
+   that fill the stage and scroll internally. Highlight token colors are
+   tuned for the dark canvas; they degrade gracefully (un-colored text)
+   when the regex highlighter doesn't tag a run. */
+
+.code-preview,
+.diagram-view {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+}
+
+.code-preview-head,
+.diagram-view-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.code-preview-path {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.code-preview-lang {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+}
+
+.code-preview-scroll,
+.diagram-view-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border-radius: 12px;
+  border: 0.5px solid var(--border-subtle);
+  background: rgba(10, 10, 12, 0.72);
+  -webkit-app-region: no-drag;
+  user-select: text;
+}
+
+.code-preview-pre {
+  margin: 0;
+  padding: 10px 0;
+}
+
+.code-preview-code {
+  display: block;
+  font-family: var(--font-mono, monospace);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.code-preview-line {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 12px;
+}
+
+.code-preview-ln {
+  text-align: right;
+  padding-right: 4px;
+  color: var(--text-tertiary);
+  opacity: 0.6;
+  user-select: none;
+}
+
+.code-preview-lc {
+  color: var(--text-secondary);
+  white-space: pre;
+  word-break: normal;
+  padding-right: 14px;
+}
+
+/* Highlight tokens (regex highlighter in CodePreview.tsx). */
+.cp-keyword {
+  color: #c98fe6;
+}
+
+.cp-string {
+  color: #8fcf9b;
+}
+
+.cp-number {
+  color: #e0a878;
+}
+
+.cp-comment {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.code-preview-empty,
+.diagram-view-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.diagram-view-source {
+  margin: 0;
+  padding: 14px 16px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre;
+  word-break: normal;
+}
