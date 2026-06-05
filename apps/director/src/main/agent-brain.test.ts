@@ -22,10 +22,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+// `electron.shell.openExternal` is recorded so the open_preview tool's lazy
+// `import('electron')` path (no injected seam) is assertable headlessly.
+const openExternalSpy = vi.fn(async (_u: string) => {});
 vi.mock('electron', () => ({
   ipcMain: { handle: () => {}, on: () => {}, removeHandler: () => {} },
   BrowserWindow: class {},
   app: { getPath: () => tmpdir() },
+  shell: { openExternal: (u: string) => openExternalSpy(u) },
 }));
 
 // GENERATED_DIR is `join(homedir(), '.director', 'generated')`, evaluated at
@@ -43,7 +47,8 @@ const PNG_1x1_B64 =
 
 // Import AFTER the mocks so they apply.
 const { _internals, saveGeneratedImage } = await import('./agent-brain.js');
-const { generateImageImpl, generateImageTool, GENERATED_DIR } = _internals;
+const { generateImageImpl, generateImageTool, GENERATED_DIR, openPreviewImpl, openPreviewTool } =
+  _internals;
 
 /** Build a fake OpenAI client whose images.generate returns a fixed b64 (or throws). */
 function fakeImagesClient(opts: {
@@ -173,5 +178,85 @@ describe('generate_image tool', () => {
     const parsed = JSON.parse(out as string);
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toMatch(/rate limited/);
+  });
+});
+
+describe('openPreviewImpl (Flow 5 — open the running product in the browser)', () => {
+  it('calls the injected shell.openExternal with the url and returns { ok:true }', async () => {
+    const openExternal = vi.fn(async (_u: string) => {});
+    const res = await openPreviewImpl('http://localhost:3000', { openExternal });
+    expect(res.ok).toBe(true);
+    expect(res.url).toBe('http://localhost:3000');
+    expect(openExternal).toHaveBeenCalledTimes(1);
+    expect(openExternal).toHaveBeenCalledWith('http://localhost:3000');
+  });
+
+  it('trims surrounding whitespace before opening', async () => {
+    const openExternal = vi.fn(async (_u: string) => {});
+    const res = await openPreviewImpl('  https://example.dev  ', { openExternal });
+    expect(res.ok).toBe(true);
+    expect(openExternal).toHaveBeenCalledWith('https://example.dev');
+  });
+
+  it('rejects an empty url WITHOUT calling the shell (error string, never throws)', async () => {
+    const openExternal = vi.fn(async (_u: string) => {});
+    const res = await openPreviewImpl('   ', { openExternal });
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/non-empty/i);
+    expect(openExternal).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-http(s) url (e.g. file:, javascript:) WITHOUT calling the shell', async () => {
+    const openExternal = vi.fn(async (_u: string) => {});
+    for (const bad of ['file:///etc/passwd', 'javascript:alert(1)', 'not a url']) {
+      const res = await openPreviewImpl(bad, { openExternal });
+      expect(res.ok).toBe(false);
+      expect(res.error).toMatch(/http/i);
+    }
+    expect(openExternal).not.toHaveBeenCalled();
+  });
+
+  it('returns { ok:false, error } (never throws) when shell.openExternal rejects', async () => {
+    const openExternal = vi.fn(async (_u: string) => {
+      throw new Error('no browser');
+    });
+    const res = await openPreviewImpl('http://localhost:5173', { openExternal });
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/no browser/);
+    expect(res.url).toBe('http://localhost:5173');
+  });
+
+  it('falls back to the real electron.shell when no seam is injected', async () => {
+    openExternalSpy.mockClear();
+    const res = await openPreviewImpl('http://localhost:8080');
+    expect(res.ok).toBe(true);
+    expect(openExternalSpy).toHaveBeenCalledWith('http://localhost:8080');
+  });
+});
+
+describe('open_preview tool', () => {
+  const ctx = {} as never; // executor body ignores runContext
+
+  it('is a function tool named open_preview', () => {
+    expect(openPreviewTool.type).toBe('function');
+    expect(openPreviewTool.name).toBe('open_preview');
+  });
+
+  it('execute returns JSON { ok:true, url } and opens via electron.shell', async () => {
+    openExternalSpy.mockClear();
+    const out = await openPreviewTool.invoke(ctx, JSON.stringify({ url: 'http://localhost:4321' }));
+    const parsed = JSON.parse(out as string);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.url).toBe('http://localhost:4321');
+    expect(openExternalSpy).toHaveBeenCalledWith('http://localhost:4321');
+  });
+
+  it('execute returns JSON { ok:false, error } for a bad url (never throws)', async () => {
+    openExternalSpy.mockClear();
+    const out = await openPreviewTool.invoke(ctx, JSON.stringify({ url: 'ftp://nope' }));
+    const parsed = JSON.parse(out as string);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toMatch(/http/i);
+    expect(openExternalSpy).not.toHaveBeenCalled();
   });
 });

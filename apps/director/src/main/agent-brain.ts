@@ -295,6 +295,99 @@ const showCanvasTool = tool({
   },
 });
 
+// ─── open_preview — open the running product in the user's browser (Flow 5) ─
+// After the brain builds something and starts a dev server via its shell (it
+// runs the server in the background and knows the localhost URL), it calls
+// open_preview to actually SHOW it — Electron's shell.openExternal() opens the
+// URL in the user's default browser. Like show_canvas, electron is imported
+// LAZILY inside the executor so this module stays headless-importable (the
+// planner.test.ts → planner → agent-brain graph never eagerly pulls electron).
+//
+// Robust by contract: a bad / empty / non-http(s) URL returns an error STRING,
+// never throws — the brain reads the error and can correct, and a thrown error
+// would otherwise abort the whole consult turn.
+
+/** Validate that a string is an http(s) URL we'll hand to the OS browser. */
+function isPreviewableUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+export interface OpenPreviewResult {
+  ok: boolean;
+  /** The URL we opened (on success) or the offending input (on error). */
+  url?: string;
+  error?: string;
+}
+
+/**
+ * Open `url` in the user's default browser via Electron's `shell.openExternal`.
+ * Lazy-imports electron so the module graph stays headless-safe. Returns a
+ * structured result and NEVER throws — an empty / malformed / non-http(s) URL,
+ * or an openExternal failure, comes back as `{ ok:false, error }`.
+ *
+ * The optional `shellLike` arg is a test seam — production callers omit it and
+ * get the real `electron.shell`; tests inject a fake to assert wiring with no
+ * Electron runtime.
+ *
+ * Exported so the tool wiring is unit-testable headlessly.
+ */
+export async function openPreviewImpl(
+  url: string,
+  shellLike?: { openExternal: (u: string) => Promise<void> },
+): Promise<OpenPreviewResult> {
+  const trimmed = typeof url === 'string' ? url.trim() : '';
+  if (!trimmed) {
+    return { ok: false, error: 'open_preview requires a non-empty url.' };
+  }
+  if (!isPreviewableUrl(trimmed)) {
+    return {
+      ok: false,
+      url: trimmed,
+      error: `open_preview needs an http(s) URL; got "${trimmed.slice(0, 120)}".`,
+    };
+  }
+  try {
+    const sh =
+      shellLike ?? ((await import('electron')).shell as unknown as {
+        openExternal: (u: string) => Promise<void>;
+      });
+    await sh.openExternal(trimmed);
+    return { ok: true, url: trimmed };
+  } catch (err) {
+    return {
+      ok: false,
+      url: trimmed,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+const openPreviewTool = tool({
+  name: 'open_preview',
+  description:
+    "Open a running product in the user's default web browser. Use this AFTER " +
+    'you have built something and started its dev server (run the server in the ' +
+    'background via your shell and read the localhost URL it prints), so the user ' +
+    'can SEE the live app. Pass the full URL including the scheme, e.g. ' +
+    'http://localhost:3000. A bad or empty URL returns an error you should fix; ' +
+    'it never crashes the turn. (For an in-app preview instead of the browser, ' +
+    "show_canvas with component:'artifact_preview' and an iframe url.)",
+  parameters: z.object({
+    url: z
+      .string()
+      .describe('The full http(s) URL of the running product, e.g. http://localhost:3000.'),
+  }),
+  async execute({ url }) {
+    // Return a JSON string (same pattern as show_canvas / generate_image).
+    return JSON.stringify(await openPreviewImpl(url));
+  },
+});
+
 // ─── dispatch_agent — the brain dispatches a real Codex sub-agent (§B.2) ──
 // The brain needs to dispatch agents itself so "mkdir a folder, git init it,
 // then spin up the team there" is one flow it controls. The executor lives in
@@ -483,6 +576,11 @@ const BRAIN_INSTRUCTIONS = `You are the Director's deep brain — the manager's 
 # Showing plans and progress
 - When you break work into steps or a plan, SHOW it as a gantt via \`show_canvas\` — component:'gantt', props_json = JSON.stringify({ title, tasks: [{ id, label, owner, status }] }) — and re-show it with updated statuses as work advances (same task ids; statuses move planned → running → done). Never read a multi-step plan aloud; show it.
 
+# Show the running product (don't just describe it)
+- When you've built or started an app and it's RUNNING, show it — don't just say it's done. Start its dev server in the BACKGROUND from your shell (e.g. \`npm run dev &\` / \`(pnpm dev >/tmp/dev.log 2>&1 &)\` — never a foreground server that blocks your shell), read the localhost URL it prints, then call the \`open_preview\` tool ({ url }) to open it in the user's browser. Pass the full URL with scheme (e.g. http://localhost:3000); a bad/empty URL just returns an error to fix, it won't crash the turn.
+- Prefer \`open_preview\` for a real running product the user should click around in. For a quick inline look without leaving the overlay, use \`show_canvas\` with component:'artifact_preview' and an iframe url instead.
+- Once it's open, your spoken summary can be as short as confirming it's live and where ("Your landing page is running — I opened it in your browser.").
+
 # Output
 - Your FINAL message is narrated aloud by the voice layer, so make it a tight 1–3 sentence summary in plain spoken English. No code blocks, no file dumps, no markdown — just what you found / decided / recommend.
 - If you took an action (edited a file, ran a fix), say so in one clause.
@@ -565,6 +663,9 @@ async function getAgent(): Promise<Agent> {
       // Real Codex sub-agent dispatch into the brain's roaming cwd (finish-spec
       // §B.2) — "mkdir a folder, then spin up the team there" in one flow.
       dispatchAgentBrainTool,
+      // Flow 5 — open the running product in the user's browser after the brain
+      // starts its dev server (shell.openExternal via a lazy electron import).
+      openPreviewTool,
     ],
     mcpServers: pencilServer ? [pencilServer] : [],
   });
@@ -615,6 +716,8 @@ export const _internals = {
   IMAGE_MODEL,
   getBrainCwd,
   dispatchAgentBrainTool,
+  openPreviewImpl,
+  openPreviewTool,
   _setImagesClientForTests(client: OpenAI | null) {
     imagesClient = client;
   },

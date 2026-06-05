@@ -136,13 +136,17 @@ export function createCanvasWindow(): BrowserWindow {
     }
   });
 
-  // Click-outside dismiss: when the canvas window loses focus, animate out.
-  // Voice flow may want to keep it open; for v1 we just dismiss.
-  canvasWindow.on('blur', () => {
-    if (canvasWindow && canvasWindow.isVisible()) {
-      dismissCanvas();
-    }
-  });
+  // Fix A — NO blur-dismiss during normal operation.
+  //
+  // The Canvas used to auto-dismiss on blur ("click-outside to close"). But the
+  // brain shows moodboards / gantts / artifacts that the user is meant to KEEP
+  // looking at while they keep talking to the Strip. Focusing the Strip (or any
+  // other window) blurs the Canvas — so the old handler raced the brain's render
+  // away the instant the user spoke. The Canvas now stays open until an EXPLICIT
+  // dismiss: the dismiss IPC (CanvasIpcChannel.Dismiss → dismissCanvas), the dev
+  // hotkey (main/index.ts), the ~400ms post-user_response auto-dismiss (a form
+  // the user just answered), or a NEW renderCanvas() replacing the content.
+  // Removing the blur handler is the fix; we intentionally register nothing here.
 
   // Re-anchor on display changes.
   const reanchor = (): void => {
