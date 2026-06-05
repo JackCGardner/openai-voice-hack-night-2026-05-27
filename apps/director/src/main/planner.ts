@@ -86,6 +86,57 @@ export interface ConsultArgs {
   context?: Record<string, unknown>;
 }
 
+/**
+ * Render the foreground's structured `args.context` (current file, active
+ * agents, recent decisions, etc.) into a compact, LLM-readable block that we
+ * prepend to the prompt the agent brain receives. Without this, the brain only
+ * ever saw `args.prompt` — the realtime layer's hard-won context (what file is
+ * open, who's already running, what was just decided) was silently dropped, so
+ * the brain re-investigated from scratch every consult.
+ *
+ * Kept deliberately terse: scalars inline, arrays as comma-joined lists,
+ * objects JSON-stringified on one line, each clamped so a fat context object
+ * can't blow up the brain's input. Empty / missing context → '' (no block, so
+ * the prompt is unchanged for callers that pass none).
+ */
+function formatContextForBrain(context: Record<string, unknown> | undefined): string {
+  if (!context || typeof context !== 'object') return '';
+  const lines: string[] = [];
+  for (const [key, value] of Object.entries(context)) {
+    if (value == null) continue;
+    let rendered: string;
+    if (typeof value === 'string') {
+      rendered = value;
+    } else if (typeof value === 'number' || typeof value === 'boolean') {
+      rendered = String(value);
+    } else if (Array.isArray(value)) {
+      const items = value
+        .map((v) => (typeof v === 'string' ? v : JSON.stringify(v)))
+        .filter((v) => v.length > 0);
+      if (items.length === 0) continue;
+      rendered = items.join(', ');
+    } else {
+      rendered = JSON.stringify(value);
+    }
+    rendered = rendered.trim();
+    if (!rendered) continue;
+    // Clamp any single field so a runaway value can't dominate the prompt.
+    if (rendered.length > 600) rendered = `${rendered.slice(0, 597)}...`;
+    lines.push(`- ${key}: ${rendered}`);
+  }
+  if (lines.length === 0) return '';
+  return ['## Caller context (from the voice layer)', ...lines].join('\n');
+}
+
+/**
+ * Compose the brain's input: the compact caller-context block (if any) followed
+ * by the user's prompt. Exported for headless unit testing of the forwarding.
+ */
+export function buildBrainPrompt(args: ConsultArgs): string {
+  const block = formatContextForBrain(args.context);
+  return block ? `${block}\n\n${args.prompt}` : args.prompt;
+}
+
 export interface ConsultResult {
   summary: string;
   decisions: string[];
@@ -435,12 +486,18 @@ function getFetch(): FetchLike {
 
 /**
  * Main entry point. Called from the tool-router on `consult_director` tool
- * calls. Streams `planner.reasoning.delta` IPC events to the strip
- * renderer if `mainWindow` is provided; returns the final synthesis once
- * the Responses stream terminates.
+ * calls. Returns the final synthesis once the agent brain (default path) or
+ * the legacy Responses stream terminates.
+ *
+ * `mainWindow` is retained for API compatibility (callers pass the strip
+ * window) but is no longer used here: reasoning narration now flows through
+ * the async-consult `tool.proactiveAnnounce` path (see tool-router's
+ * `sendConsultAnnounce` + the renderer's `proactive.onAnnounce`), so the old
+ * per-delta `planner.reasoning.delta` stream was removed as dead wiring.
  */
 export async function consultDirector(
   args: ConsultArgs,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   mainWindow?: BrowserWindow | null,
 ): Promise<ConsultResult> {
   // ─── § agent-brain — default path ──────────────────────────────────────
@@ -448,9 +505,14 @@ export async function consultDirector(
   // legacy reasoning-only planner is explicitly requested. The agent brain
   // investigates the real filesystem before answering, so its summary is
   // grounded in the actual project rather than a context-free guess.
+  //
+  // Forward the foreground's structured `args.context` (current file, active
+  // agents, recent decisions) by prepending a compact context block to the
+  // prompt the brain receives — otherwise the brain only ever sees the bare
+  // utterance and loses the context the voice layer worked to assemble.
   if (!process.env.DIRECTOR_LEGACY_PLANNER) {
     try {
-      const r = await runAgentBrain(args.prompt);
+      const r = await runAgentBrain(buildBrainPrompt(args));
       return { summary: r.summary, decisions: r.decisions, full_text: r.full_text };
     } catch (err) {
       // Fall through to the legacy planner if the agent brain fails to run
@@ -520,16 +582,6 @@ export async function consultDirector(
   let newResponseId: string | null = null;
   let usage: OrchestratorUsage | null = null;
 
-  const emit = (channel: string, payload: unknown): void => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      try {
-        mainWindow.webContents.send(channel, payload);
-      } catch {
-        /* renderer gone — ignore */
-      }
-    }
-  };
-
   try {
     while (true) {
       const { value, done } = await reader.read();
@@ -562,7 +614,9 @@ export async function consultDirector(
         // Be permissive on the reasoning event name — OpenAI has used both
         // response.reasoning_summary_text.delta and response.reasoning_text.delta
         // across model versions. If we ever see neither + nothing in output,
-        // diagnostic log below will surface it.
+        // diagnostic log below will surface it. We accumulate the reasoning
+        // summary for the final `summary` return value; per-delta streaming to
+        // the renderer was removed (the async-consult announce covers narration).
         if (
           (event.type === 'response.reasoning_summary_text.delta' ||
             event.type === 'response.reasoning_text.delta' ||
@@ -570,7 +624,6 @@ export async function consultDirector(
           typeof event.delta === 'string'
         ) {
           reasoningSummary += event.delta;
-          emit(IpcChannel.PlannerReasoningDelta, { delta: event.delta });
         } else if (
           event.type === 'response.output_text.delta' &&
           typeof event.delta === 'string'

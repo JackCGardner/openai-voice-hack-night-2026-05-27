@@ -11,11 +11,14 @@
  *   • a bundled asset URL  (e.g. `new URL('./assets/foo.png', import.meta.url)`)
  *   • an https URL
  *   • a `data:image/...;base64,…` inline image
- *   • a `file:///abs/path.png` brain-saved generated image (~/.director/generated)
- * All four resolve as a CSS `background-image: url(...)` in the Electron
- * renderer, so the §10 generated-image path needs no component change — only
- * the widened accepted forms + a graceful per-tile no-image fallback for a
- * concept whose image is still being written (text over a neutral tile).
+ * Each resolves as a CSS `background-image: url(...)` in the Electron renderer.
+ * For brain-generated concept art the `generate_image` tool returns an inline
+ * `data:` URL (NOT a `file://` path): the Canvas CSP is `img-src 'self' data:
+ * blob:` (canvas.html), which blocks `file:`, so the on-disk
+ * ~/.director/generated copy is for logs only and the moodboard always shows
+ * the `data:` form. The §10 generated-image path needs no component change —
+ * only a graceful per-tile no-image fallback for a concept whose image is
+ * still being written (text over a neutral tile).
  *
  * Empty/loading: zero concepts → a calm empty state (matches the other
  * components); a tile with a missing/blank `image_url` renders its
@@ -33,10 +36,10 @@ export interface MoodboardConcept {
   label: string;
   description: string;
   /**
-   * Cover image. Accepts a bundled asset URL, an https URL, a
-   * `data:image/...;base64,…` data-URL, or a `file:///abs/path.png` path to a
-   * brain-generated/saved image. May be missing/blank while an image is still
-   * being written — the tile degrades to a neutral placeholder.
+   * Cover image. Accepts a bundled asset URL, an https URL, or a
+   * `data:image/...;base64,…` data-URL (the form brain-generated concept art
+   * arrives in — the Canvas CSP blocks `file:`). May be missing/blank while an
+   * image is still being written — the tile degrades to a neutral placeholder.
    */
   image_url?: string;
   /** Optional palette swatch hexes, rendered as a small chip row. */

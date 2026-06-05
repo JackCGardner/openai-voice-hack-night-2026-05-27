@@ -14,9 +14,11 @@
  *     `{ agents: ListAgentsItem[] }` from the side-store (§3.1). Wrapped in a
  *     `ToolCallResponse` so it drops into the `tool-router` switch unchanged.
  *   - `dispatchAgentReal(args, ...)` — drives the REAL `codex-pool`
- *     (`dispatchAgent`) instead of the sim mock (§3.3). Gated by
- *     `DIRECTOR_REAL_AGENTS` (see `useRealAgents()`); the router branches on it
- *     inside `handleDispatchAgentMock`, keeping the same tool name on the wire.
+ *     (`dispatchAgent`) to spawn an actual Codex subprocess (§3.3). This is the
+ *     ONLY dispatch path: `tool-router.ts handleDispatchAgentMock`
+ *     unconditionally calls it (no `DIRECTOR_REAL_AGENTS` env gate / no sim
+ *     fallback — both removed), keeping the `dispatch_agent_mock` tool name on
+ *     the wire for backwards compatibility while the behavior is fully real.
  */
 
 import type { ToolCallRequest, ToolCallResponse } from '../shared/ipc.js';

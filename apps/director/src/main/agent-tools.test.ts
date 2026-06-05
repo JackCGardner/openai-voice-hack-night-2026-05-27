@@ -5,8 +5,9 @@
  * agent-registry read so `handleListAgents` is exercised without disk. The
  * real-dispatch path injects a fake `DispatchAgentDriver`, so no Codex SDK /
  * Electron is touched. Covers: tool-def shape, handler return shape, the
- * read-failure degrade, the `DIRECTOR_REAL_AGENTS` flag, dispatch forwarding,
- * validation, and target-repo resolution.
+ * read-failure degrade, dispatch forwarding, validation, and target-repo
+ * resolution. (Real dispatch is now unconditional — there is no
+ * `DIRECTOR_REAL_AGENTS` gate to test.)
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
