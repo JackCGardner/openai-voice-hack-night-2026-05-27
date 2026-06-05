@@ -39,7 +39,7 @@ export interface DispatchAgentRequest {
   name: string;
   role: AgentRole;
   task: string;
-  /** Absolute path to the target repo (e.g. examples/mixtape). */
+  /** Absolute path to the target repo (the user's current project / roaming cwd). */
   targetRepo: string;
   /** Optional base branch (default 'main'). */
   baseBranch?: string;
@@ -79,12 +79,12 @@ const AGENT_TEMPLATES: Record<string, RoleTemplate> = {
   data: {
     specialty:
       'Schemas-first, Zod for runtime validation, file-backed JSON for demo persistence, no real DBs.',
-    tone: 'Narrate work in methodical statements ("Mixtape schema written", "store helpers shipped").',
+    tone: 'Narrate work in methodical statements ("schema written", "store helpers shipped").',
   },
   design: {
     specialty:
       'Tailwind tokens, motion primitives, theme tokens, accessibility contrast. No new color additions outside the design system.',
-    tone: 'Narrate work in descriptive observations ("cassette palette tuned", "matte tokens locked").',
+    tone: 'Narrate work in descriptive observations ("palette tuned", "matte tokens locked").',
   },
 };
 

@@ -22,7 +22,7 @@ export interface WorktreeOpts {
   sessionId: string;
   /** Stable identifier for the agent (maya / jin / cleo / wren / …). */
   agentId: string;
-  /** Absolute path to the user's target repo (typically examples/mixtape). */
+  /** Absolute path to the user's target repo (their current project / roaming cwd). */
   targetRepo: string;
   /** Defaults to `main`. */
   baseBranch?: string;

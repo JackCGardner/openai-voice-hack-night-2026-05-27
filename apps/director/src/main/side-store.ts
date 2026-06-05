@@ -594,7 +594,7 @@ export const SIDESTORE_SCHEMA_VERSION = 1 as const;
  */
 export interface SessionMeta {
   schemaVersion: typeof SIDESTORE_SCHEMA_VERSION;
-  /** Filesystem path to the user's project root (e.g. `~/code/mixtape`). */
+  /** Filesystem path to the user's project root (e.g. `~/dev/my-app`). */
   projectPath: string | null;
   /** Subdir of `projectPath` Director writes generated code into (optional). */
   targetAppDir: string | null;
