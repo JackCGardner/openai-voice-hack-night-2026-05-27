@@ -30,6 +30,7 @@ import {
   run,
   shellTool,
   setDefaultOpenAIKey,
+  MCPServerStdio,
   type Shell,
   type ShellAction,
   type ShellResult,
@@ -181,6 +182,11 @@ const BRAIN_INSTRUCTIONS = `You are the Director's deep brain — the manager's 
 - Be efficient. Batch related shell commands. Don't re-read what you've already seen.
 - You are the planner/orchestrator, not a chatbot. For execution-heavy work you'd normally hand off to the Codex worker fleet (Maya frontend, Jin backend, Cleo data, Wren design) — describe the breakdown; the system dispatches them.
 
+# Visual & frontend design — use Pencil
+- For ANY visual or frontend design work — a landing page, a marketing section, a widget, a UI component, a layout — use the Pencil design tools (the \`pencil\` MCP, when available). Design it there first; don't hand-write speculative HTML/CSS when you can compose it visually.
+- To SHOW the user what you made, two paths: (1) take a screenshot of the Pencil design and surface that image on the Canvas, or (2) fetch/export the design's HTML via Pencil and show that. Prefer showing the artifact over describing it in words.
+- If the Pencil tools aren't present in this session, say so plainly and fall back to writing the markup directly with the shell — don't pretend to have designed something you couldn't.
+
 # Output
 - Your FINAL message is narrated aloud by the voice layer, so make it a tight 1–3 sentence summary in plain spoken English. No code blocks, no file dumps, no markdown — just what you found / decided / recommend.
 - If you took an action (edited a file, ran a fix), say so in one clause.
@@ -193,7 +199,43 @@ const BRAIN_INSTRUCTIONS = `You are the Director's deep brain — the manager's 
 let cachedAgent: Agent | null = null;
 let keySet = false;
 
-function getAgent(): Agent {
+// ─── Pencil MCP (visual / frontend design) ───────────────────────────────
+// The brain gets Pencil's design tools so it can build landing pages, widgets,
+// and components visually, then screenshot or export the result to show on the
+// Canvas. Connected best-effort + lazily — if Pencil.app isn't installed or
+// running, the brain simply runs without it (shell-only); it never blocks the
+// consult path.
+let pencil: MCPServerStdio | null = null;
+let pencilTried = false;
+
+async function getPencilServer(): Promise<MCPServerStdio | null> {
+  if (pencilTried) return pencil;
+  pencilTried = true;
+  try {
+    const server = new MCPServerStdio({
+      name: 'pencil',
+      command:
+        '/Applications/Pencil.app/Contents/Resources/app.asar.unpacked/out/mcp-server-darwin-arm64',
+      args: ['--app', 'desktop'],
+      // Inherit the parent env (the user's MCP config specifies no EXTRA vars);
+      // an empty env would strip HOME/PATH and break the launcher.
+      env: { ...process.env } as Record<string, string>,
+      cacheToolsList: true,
+    });
+    await server.connect();
+    pencil = server;
+    console.log('[agent-brain] pencil MCP connected');
+  } catch (err) {
+    console.warn(
+      '[agent-brain] pencil MCP unavailable — continuing without it (is Pencil.app installed?)',
+      err,
+    );
+    pencil = null;
+  }
+  return pencil;
+}
+
+async function getAgent(): Promise<Agent> {
   if (!keySet) {
     const apiKey = process.env.OPENAI_API_KEY;
     if (apiKey) {
@@ -203,6 +245,7 @@ function getAgent(): Agent {
   }
   if (cachedAgent) return cachedAgent;
   const cwd = startDir();
+  const pencilServer = await getPencilServer();
   cachedAgent = new Agent({
     name: 'Director Brain',
     model: BRAIN_MODEL,
@@ -214,8 +257,11 @@ function getAgent(): Agent {
         needsApproval: false, // seatbelt is the denylist; no approval UI yet
       }),
     ],
+    mcpServers: pencilServer ? [pencilServer] : [],
   });
-  console.log(`[agent-brain] initialized — model=${BRAIN_MODEL} cwd=${cwd}`);
+  console.log(
+    `[agent-brain] initialized — model=${BRAIN_MODEL} cwd=${cwd} pencil=${pencilServer ? 'on' : 'off'}`,
+  );
   return cachedAgent;
 }
 
@@ -234,7 +280,7 @@ export async function runAgentBrain(prompt: string): Promise<AgentBrainResult> {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error('[agent-brain] OPENAI_API_KEY missing in main process env');
   }
-  const agent = getAgent();
+  const agent = await getAgent();
   const result = await run(agent, prompt, { maxTurns: 40 });
   const text =
     typeof result.finalOutput === 'string'
