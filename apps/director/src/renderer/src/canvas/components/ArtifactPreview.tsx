@@ -1,15 +1,24 @@
 /**
- * ArtifactPreview — final-reveal Mixtape card. Click cover to flip;
- * Ship / Iterate / Discard actions on the rear and the cover face.
- * Pencil source: Canvas / Artifact Preview (qoDBE).
+ * ArtifactPreview — final-reveal artifact card. Renders STRICTLY from props.
  *
- * Schema: docs/research/genui-schema.md §artifact_preview.
- * Demo content: docs/research/demo-target-app.md "Mixtape".
+ * Generic artifact shape (docs/voice-genui-spec.md §2.6): a framed preview of
+ * an iframe URL, an image, or sandboxed model-authored HTML, plus optional
+ * Ship / Iterate / Discard actions. When no `src`/`html` is supplied it shows
+ * a calm empty state — it NEVER falls back to demo data.
+ *
+ * The Mixtape flip-card chrome is retained only when an explicit `mixtape`
+ * object is passed (the demo trigger: ChatSurface "Start Mixtape Demo" + the
+ * dev `⌃⌥⌘A` hotkey both pass the full mixtape props). There is no hardcoded
+ * `MOCK_MIXTAPE` fallback and no implicit `http://localhost:3001` iframe — an
+ * omitted field renders an empty state, not Tokyo-neon tracks.
  */
 
-import { useEffect, useRef, useState, type JSX } from 'react';
+import { useState, type JSX } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 
+export type ArtifactAction = 'ship' | 'iterate' | 'discard';
+
+/** Legacy demo shape — only rendered when explicitly provided (no defaults). */
 export interface MixtapeTrack {
   title: string;
   artist: string;
@@ -24,208 +33,242 @@ export interface MixtapeData {
 
 export interface ArtifactPreviewProps {
   title?: string;
+  kind?: 'iframe' | 'image' | 'html';
+  /** URL / data-url for kind === 'iframe' | 'image'. */
+  src?: string;
+  /** Model-authored HTML for kind === 'html' (sandboxed, no scripts — §2.2). */
+  html?: string;
   notes?: string;
+  actions?: ArtifactAction[];
+  onAction?: (action: ArtifactAction) => void;
+  /**
+   * Structured demo artifact (Mixtape flip-card). Only the explicit demo
+   * triggers pass this; production callers use the generic fields above.
+   */
   mixtape?: MixtapeData;
-  actions?: Array<'ship' | 'iterate' | 'discard'>;
-  onAction?: (action: 'ship' | 'iterate' | 'discard') => void;
 }
 
-/** Canonical Tokyo Neon demo mixtape — fake-but-believable synthwave roster. */
-export const MOCK_MIXTAPE: MixtapeData = {
-  vibe: 'late-night drive through Tokyo neon',
-  tracks: [
-    { title: 'Midnight Driver', artist: 'Akira Vance', runtime: '4:12' },
-    { title: 'Velvet Apartment', artist: 'Noémie Hara', runtime: '3:48' },
-    { title: 'Neon Rain', artist: 'Sable Sound', runtime: '5:02' },
-    { title: 'Hyperreal', artist: 'Yoko & The Visa', runtime: '4:31' },
-    { title: 'Lights From The Tower', artist: 'CHROMERIDER', runtime: '3:55' },
-    { title: 'Akihabara Sunrise', artist: 'Aoi Tanaka', runtime: '4:24' },
-  ],
-  coverUrl: '',
-};
-
-export function ArtifactPreview({
-  title,
-  notes,
-  mixtape: providedMixtape,
-  actions = ['ship', 'iterate', 'discard'],
+function ActionButtons({
+  actions,
   onAction,
-}: ArtifactPreviewProps): JSX.Element {
+}: {
+  actions: ArtifactAction[];
+  onAction?: (action: ArtifactAction) => void;
+}): JSX.Element | null {
+  if (actions.length === 0) return null;
+  return (
+    <div className="artifact-actions">
+      {actions.includes('ship') ? (
+        <button
+          type="button"
+          className="artifact-action primary"
+          data-no-drag
+          onClick={() => onAction?.('ship')}
+        >
+          Ship
+        </button>
+      ) : null}
+      {actions.includes('iterate') ? (
+        <button
+          type="button"
+          className="artifact-action"
+          data-no-drag
+          onClick={() => onAction?.('iterate')}
+        >
+          Iterate
+        </button>
+      ) : null}
+      {actions.includes('discard') ? (
+        <button
+          type="button"
+          className="artifact-action danger"
+          data-no-drag
+          onClick={() => onAction?.('discard')}
+        >
+          Discard
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Mixtape flip-card — rendered ONLY when an explicit `mixtape` is provided.
+ * No demo fallback lives here; an empty/garbled mixtape simply renders the
+ * chrome with whatever real fields were passed.
+ */
+function MixtapeCard({
+  mixtape,
+  notes,
+}: {
+  mixtape: MixtapeData;
+  notes?: string;
+}): JSX.Element {
   const [flipped, setFlipped] = useState(false);
-  const [iframeFailed, setIframeFailed] = useState(false);
-  const iframeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reduced = useReducedMotion();
-  const providedVibe = typeof providedMixtape?.vibe === 'string' ? providedMixtape.vibe.trim() : '';
-  const mixtape: MixtapeData = {
-    ...MOCK_MIXTAPE,
-    ...providedMixtape,
-    vibe: providedVibe || MOCK_MIXTAPE.vibe,
-    tracks: Array.isArray(providedMixtape?.tracks) ? providedMixtape.tracks : MOCK_MIXTAPE.tracks,
-    coverUrl:
-      typeof providedMixtape?.coverUrl === 'string'
-        ? providedMixtape.coverUrl
-        : MOCK_MIXTAPE.coverUrl,
-  };
-  const iframeUrl = providedVibe
-    ? `http://localhost:3001/?vibe=${encodeURIComponent(providedVibe)}`
-    : null;
-  const showIframe = iframeUrl !== null && !iframeFailed;
+  const tracks = Array.isArray(mixtape.tracks) ? mixtape.tracks : [];
 
-  useEffect(() => {
-    setIframeFailed(false);
-
-    if (!iframeUrl) {
-      return;
-    }
-
-    iframeTimeoutRef.current = setTimeout(() => {
-      setIframeFailed(true);
-      iframeTimeoutRef.current = null;
-    }, 2000);
-
-    return () => {
-      if (iframeTimeoutRef.current) {
-        clearTimeout(iframeTimeoutRef.current);
-        iframeTimeoutRef.current = null;
-      }
-    };
-  }, [iframeUrl]);
-
-  const handleIframeLoad = (): void => {
-    if (iframeTimeoutRef.current) {
-      clearTimeout(iframeTimeoutRef.current);
-      iframeTimeoutRef.current = null;
-    }
-  };
-
-  const totalRuntime = mixtape.tracks.reduce((sum, t) => {
-    const [m, s] = t.runtime.split(':').map(Number);
+  const totalRuntime = tracks.reduce((sum, t) => {
+    const [m, s] = String(t.runtime ?? '').split(':').map(Number);
     return sum + (m ?? 0) * 60 + (s ?? 0);
   }, 0);
   const totalMin = Math.floor(totalRuntime / 60);
   const totalSec = totalRuntime % 60;
   const totalStr = `${totalMin}:${String(totalSec).padStart(2, '0')}`;
 
-  const actionButtons =
-    actions.length > 0 ? (
-      <div className="artifact-actions">
-        {actions.includes('ship') ? (
+  return (
+    <div className="artifact-frame">
+      <motion.div
+        className="artifact-card"
+        animate={reduced ? { rotateY: 0 } : { rotateY: flipped ? 180 : 0 }}
+        transition={
+          reduced ? { duration: 0 } : { type: 'spring', stiffness: 180, damping: 22 }
+        }
+        style={{ transformStyle: 'preserve-3d' }}
+      >
+        {/* Front face — cover + tracklist. */}
+        <div className="artifact-card-front">
           <button
             type="button"
-            className="artifact-action primary"
+            className="artifact-cover"
             data-no-drag
-            onClick={() => onAction?.('ship')}
+            onClick={() => setFlipped((f) => !f)}
+            aria-label="Flip cover"
+            style={{
+              backgroundImage: mixtape.coverUrl
+                ? `url(${mixtape.coverUrl})`
+                : undefined,
+            }}
           >
-            Ship
+            <div className="artifact-cover-overlay">
+              <span className="artifact-tag">
+                Mixtape · {tracks.length} tracks · {totalStr}
+              </span>
+              <span className="artifact-vibe">{mixtape.vibe}</span>
+            </div>
           </button>
-        ) : null}
-        {actions.includes('iterate') ? (
-          <button
-            type="button"
-            className="artifact-action"
-            data-no-drag
-            onClick={() => onAction?.('iterate')}
-          >
-            Iterate
-          </button>
-        ) : null}
-        {actions.includes('discard') ? (
-          <button
-            type="button"
-            className="artifact-action danger"
-            data-no-drag
-            onClick={() => onAction?.('discard')}
-          >
-            Discard
-          </button>
-        ) : null}
+
+          <div className="artifact-tracks">
+            {tracks.map((track, i) => (
+              <div className="artifact-track" key={`${track.title}-${i}`}>
+                <span className="artifact-track-num">
+                  {String(i + 1).padStart(2, '0')}
+                </span>
+                <div className="artifact-track-meta">
+                  <span className="artifact-track-title">{track.title}</span>
+                  <span className="artifact-track-artist">{track.artist}</span>
+                </div>
+                <span className="artifact-track-runtime">{track.runtime}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Back face — minimal meta. */}
+        <div className="artifact-card-back">
+          <span className="canvas-eyebrow">Mixtape</span>
+          <div className="canvas-title">{mixtape.vibe}</div>
+          <span className="artifact-meta">
+            {tracks.length} tracks · {totalStr} runtime
+          </span>
+          {notes ? <span className="artifact-meta">{notes}</span> : null}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+export function ArtifactPreview({
+  title,
+  kind,
+  src,
+  html,
+  notes,
+  actions,
+  onAction,
+  mixtape,
+}: ArtifactPreviewProps): JSX.Element {
+  // Actions only surface when a handler is wired (interactive). Default to the
+  // full set in that case; never render dangling buttons for a display-only card.
+  const resolvedActions: ArtifactAction[] = onAction
+    ? Array.isArray(actions)
+      ? actions
+      : ['ship', 'iterate', 'discard']
+    : Array.isArray(actions)
+      ? actions
+      : [];
+
+  const trimmedSrc = typeof src === 'string' ? src.trim() : '';
+  const trimmedHtml = typeof html === 'string' ? html.trim() : '';
+
+  // Body precedence: explicit mixtape demo → iframe → image → html → empty.
+  let body: JSX.Element;
+  if (mixtape) {
+    body = <MixtapeCard mixtape={mixtape} notes={notes} />;
+  } else if (kind === 'iframe' && trimmedSrc) {
+    body = (
+      <div className="artifact-frame">
+        <div className="artifact-card" style={{ background: 'transparent' }}>
+          <iframe
+            title={title ?? 'Artifact preview'}
+            src={trimmedSrc}
+            style={{
+              width: '100%',
+              height: '100%',
+              border: 0,
+              background: 'transparent',
+            }}
+          />
+        </div>
       </div>
-    ) : null;
+    );
+  } else if (kind === 'image' && trimmedSrc) {
+    body = (
+      <div className="artifact-frame">
+        <div
+          className="artifact-card"
+          style={{
+            backgroundImage: `url(${trimmedSrc})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        />
+      </div>
+    );
+  } else if (kind === 'html' && trimmedHtml) {
+    // Sandboxed (no scripts, no same-origin) — model-authored HTML is inert.
+    body = (
+      <div className="artifact-frame">
+        <div className="artifact-card" style={{ background: 'rgba(14,14,16,0.92)' }}>
+          <iframe
+            title={title ?? 'Artifact preview'}
+            sandbox=""
+            srcDoc={trimmedHtml}
+            style={{
+              width: '100%',
+              height: '100%',
+              border: 0,
+              background: 'transparent',
+            }}
+          />
+        </div>
+      </div>
+    );
+  } else {
+    // Calm empty state — NEVER demo data.
+    body = (
+      <div className="artifact-frame">
+        <div className="canvas-empty">Nothing to preview yet</div>
+      </div>
+    );
+  }
 
   return (
     <div className="artifact">
       {title ? <div className="canvas-title">{title}</div> : null}
-
-      {showIframe ? (
-        <div className="artifact-frame">
-          <div
-            className="artifact-card"
-            style={{
-              background: 'transparent',
-              height: '100%',
-              maxHeight: 460,
-            }}
-          >
-            <iframe
-              title={title ?? 'Mixtape preview'}
-              src={iframeUrl}
-              onLoad={handleIframeLoad}
-              onError={() => setIframeFailed(true)}
-              style={{
-                width: '100%',
-                height: '100%',
-                border: 0,
-                background: 'transparent',
-              }}
-            />
-          </div>
-        </div>
-      ) : (
-        <div className="artifact-frame">
-          <motion.div
-            className="artifact-card"
-            animate={reduced ? { rotateY: 0 } : { rotateY: flipped ? 180 : 0 }}
-            transition={reduced ? { duration: 0 } : { type: 'spring', stiffness: 180, damping: 22 }}
-            style={{ transformStyle: 'preserve-3d' }}
-          >
-            {/* Front face — cover + tracklist. */}
-            <div className="artifact-card-front">
-              <button
-                type="button"
-                className="artifact-cover"
-                data-no-drag
-                onClick={() => setFlipped((f) => !f)}
-                aria-label="Flip cover"
-                style={{
-                  backgroundImage: mixtape.coverUrl ? `url(${mixtape.coverUrl})` : undefined,
-                }}
-              >
-                <div className="artifact-cover-overlay">
-                  <span className="artifact-tag">
-                    Mixtape · {mixtape.tracks.length} tracks · {totalStr}
-                  </span>
-                  <span className="artifact-vibe">{mixtape.vibe}</span>
-                </div>
-              </button>
-
-              <div className="artifact-tracks">
-                {mixtape.tracks.map((track, i) => (
-                  <div className="artifact-track" key={`${track.title}-${i}`}>
-                    <span className="artifact-track-num">{String(i + 1).padStart(2, '0')}</span>
-                    <div className="artifact-track-meta">
-                      <span className="artifact-track-title">{track.title}</span>
-                      <span className="artifact-track-artist">{track.artist}</span>
-                    </div>
-                    <span className="artifact-track-runtime">{track.runtime}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Back face — minimal meta + actions. */}
-            <div className="artifact-card-back">
-              <span className="canvas-eyebrow">Mixtape</span>
-              <div className="canvas-title">{mixtape.vibe}</div>
-              <span className="artifact-meta">
-                {mixtape.tracks.length} tracks · {totalStr} runtime
-              </span>
-              {notes ? <span className="artifact-meta">{notes}</span> : null}
-            </div>
-          </motion.div>
-        </div>
-      )}
-
-      {actionButtons}
+      {body}
+      {notes && !mixtape ? <span className="artifact-meta">{notes}</span> : null}
+      <ActionButtons actions={resolvedActions} onAction={onAction} />
     </div>
   );
 }
