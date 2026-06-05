@@ -813,6 +813,18 @@
   user-select: text;
 }
 
+/* Graphical mermaid render — center it and fit the rendered SVG to the card. */
+.diagram-mermaid {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.diagram-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
 .code-preview-pre {
   margin: 0;
   padding: 10px 0;

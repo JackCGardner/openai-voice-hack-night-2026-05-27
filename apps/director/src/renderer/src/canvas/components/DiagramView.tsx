@@ -28,7 +28,7 @@
  * unknown `kind` (still attempts to parse edges, then the `<pre>`).
  */
 
-import { useMemo, type JSX } from 'react';
+import { useEffect, useId, useMemo, useState, type JSX } from 'react';
 
 export interface DiagramViewProps {
   /** Optional card header. */
@@ -37,6 +37,50 @@ export interface DiagramViewProps {
   kind?: 'mermaid' | 'dot' | string;
   /** The diagram source text (mermaid graph DSL or Graphviz DOT). */
   source?: string;
+  /** Alias keys the model sometimes emits the diagram text under instead of
+   *  `source`. We resolve the first non-empty one so a prop-key mismatch never
+   *  shows the empty state when there IS a diagram. */
+  mermaid?: string;
+  dot?: string;
+  code?: string;
+  diagram?: string;
+  definition?: string;
+  chart?: string;
+  content?: string;
+  text?: string;
+}
+
+/** First non-empty trimmed string among the candidates. */
+function firstSource(...candidates: Array<unknown>): string {
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim().length > 0) return c;
+  }
+  return '';
+}
+
+// ─── Mermaid (lazy, one-time init) ───────────────────────────────────────
+// mermaid pulls d3 + ~hundreds of KB, so it's dynamically imported the first
+// time a diagram actually renders — it never weighs down the initial bundle.
+// securityLevel 'strict' sanitizes the model-supplied source.
+let mermaidPromise: Promise<typeof import('mermaid').default> | null = null;
+function getMermaid(): Promise<typeof import('mermaid').default> {
+  if (!mermaidPromise) {
+    mermaidPromise = import('mermaid').then((m) => {
+      const mer = m.default;
+      try {
+        mer.initialize({
+          startOnLoad: false,
+          theme: 'dark',
+          securityLevel: 'strict',
+          fontFamily: 'Inter, system-ui, sans-serif',
+        });
+      } catch {
+        /* initialize is idempotent-ish; ignore double-init */
+      }
+      return mer;
+    });
+  }
+  return mermaidPromise;
 }
 
 /** One parsed relationship in the diagram. */
@@ -201,12 +245,11 @@ function parseDiagram(source: string, kind: string): ParsedDiagram {
 }
 
 /**
- * Render seam (spec §2.4 / Appendix II §2): today a structured edge view +
- * raw-source fallback. A real graphical renderer (mermaid / @viz-js, lazy
- * imported) drops in here later; keep the structured/`<pre>` paths as the
- * render-failure fallback.
+ * Fallback renderer: a structured edge view + raw-source `<pre>`. Used for
+ * Graphviz DOT (mermaid can't render DOT) and whenever the graphical mermaid
+ * render fails. Never throws.
  */
-function renderDiagram(source: string, kind: string): JSX.Element {
+function renderStructured(source: string, kind: string): JSX.Element {
   let parsed: ParsedDiagram | null = null;
   try {
     parsed = parseDiagram(source, kind);
@@ -260,22 +303,72 @@ function renderDiagram(source: string, kind: string): JSX.Element {
   );
 }
 
-export function DiagramView({
-  title,
-  kind,
-  source,
-}: DiagramViewProps = {}): JSX.Element {
-  const src = typeof source === 'string' ? source : '';
+export function DiagramView(props: DiagramViewProps = {}): JSX.Element {
+  const { title, kind } = props;
+  // Resolve the diagram text from `source` or any of the alias keys the model
+  // might use — this is what fixes the "Nothing to diagram yet" empty state
+  // when the text actually arrived under e.g. `mermaid` or `code`.
+  const src = firstSource(
+    props.source,
+    props.mermaid,
+    props.dot,
+    props.code,
+    props.diagram,
+    props.definition,
+    props.chart,
+    props.content,
+    props.text,
+  );
   const hasSource = src.trim().length > 0;
   const label = kindLabel(kind);
   const kindStr = typeof kind === 'string' ? kind : '';
+  // DOT goes straight to the structured fallback (mermaid renders no DOT).
+  const tryMermaid = hasSource && kindStr !== 'dot';
 
-  // Memoize the (cheap) parse + render so re-renders from unrelated parent
-  // state don't re-walk the source.
-  const body = useMemo(
-    () => (hasSource ? renderDiagram(src, kindStr) : null),
+  const reactId = useId().replace(/[^a-zA-Z0-9]/g, '');
+  const [svg, setSvg] = useState<string | null>(null);
+
+  // Lazy graphical render. Shows the structured fallback immediately, then
+  // upgrades to the real mermaid SVG once it loads. On any failure it simply
+  // stays on the structured view rather than throwing.
+  useEffect(() => {
+    setSvg(null);
+    if (!tryMermaid) return;
+    let cancelled = false;
+    getMermaid()
+      .then((mer) => mer.render(`mmd-${reactId}`, src))
+      .then(({ svg: out }) => {
+        if (!cancelled) setSvg(out);
+      })
+      .catch((err) => {
+        console.warn('[diagram] mermaid render failed — using structured view', err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [src, kindStr, tryMermaid, reactId]);
+
+  // Structured/<pre> fallback (DOT, pre-load, mermaid failure). Memoized.
+  const fallback = useMemo(
+    () => (hasSource ? renderStructured(src, kindStr) : null),
     [src, kindStr, hasSource],
   );
+
+  let body: JSX.Element | null;
+  if (!hasSource) {
+    body = <div className="diagram-view-empty">Nothing to diagram yet.</div>;
+  } else if (svg) {
+    // mermaid output is sanitized (securityLevel: 'strict').
+    body = (
+      <div
+        className="diagram-view-scroll diagram-mermaid"
+        data-no-drag
+        dangerouslySetInnerHTML={{ __html: svg }}
+      />
+    );
+  } else {
+    body = fallback;
+  }
 
   return (
     <div className="diagram-view">
@@ -285,12 +378,7 @@ export function DiagramView({
           <span className="canvas-title">{title}</span>
         ) : null}
       </div>
-
-      {hasSource ? (
-        body
-      ) : (
-        <div className="diagram-view-empty">Nothing to diagram yet.</div>
-      )}
+      {body}
     </div>
   );
 }

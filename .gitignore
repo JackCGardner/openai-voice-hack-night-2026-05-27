@@ -43,3 +43,6 @@ images/
 
 # electron-vite temp config dumps
 apps/director/electron.vite.config.*.mjs
+
+# workflow scratch scripts
+docs/wf-*.mjs
