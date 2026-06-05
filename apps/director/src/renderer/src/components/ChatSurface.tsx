@@ -1,7 +1,7 @@
 /**
  * ChatSurface — the full conversational chrome (header + transcript +
- * agent sidebar + composer + demo buttons). Used in the secondary
- * "Show Chat (debug)" window opened from the tray menu.
+ * agent sidebar + composer). Used in the secondary "Show Chat (debug)"
+ * window opened from the tray menu.
  *
  * Pure presentational: receives the live RealtimeClient + chat state
  * from App.tsx so the Realtime → store bridge wired in App.tsx keeps
@@ -10,20 +10,13 @@
 
 import { type FormEvent, type JSX } from 'react';
 import { useStore } from '../state/store';
-import { startMixtapeDemo, resolveJinBlocker } from '../state/sim';
 import type { Agent } from '../../../shared/state';
 import type {
   RealtimeClientStatus,
   MicMode,
 } from '../realtime/client';
-import { devToolCall } from '../lib/toolBridge';
 
 export type ChatMessage = { role: 'user' | 'assistant'; text: string };
-
-const matteVinylUrl = new URL('../assets/matte-vinyl.png', import.meta.url).toString();
-const cassetteUrl = new URL('../assets/cassette.png', import.meta.url).toString();
-const holographicUrl = new URL('../assets/holographic.png', import.meta.url).toString();
-const tokyoNeonUrl = new URL('../assets/tokyo-neon.png', import.meta.url).toString();
 
 function agentAccent(agent: Agent): string {
   const key = `${agent.id} ${agent.name}`.toLowerCase();
@@ -60,60 +53,6 @@ function statusTone(status: string): string {
     return 'border-status-blocked/40 bg-status-blocked/15 text-status-blocked';
   }
   return 'border-border-subtle bg-white/5 text-text-secondary';
-}
-
-function showMoodboardPreset(): void {
-  void devToolCall('render_canvas', {
-    component_id: `chat-moodboard-${Date.now()}`,
-    component: 'moodboard',
-    props: {
-      title: 'Card material',
-      concepts: [
-        {
-          id: 'matte-vinyl',
-          label: 'Matte Vinyl',
-          description: 'Premium, monochrome, calm',
-          image_url: matteVinylUrl,
-        },
-        {
-          id: 'cassette',
-          label: 'Cassette',
-          description: 'Translucent amber, warm 80s',
-          image_url: cassetteUrl,
-        },
-        {
-          id: 'holographic',
-          label: 'Holographic',
-          description: 'Iridescent foil, playful',
-          image_url: holographicUrl,
-        },
-      ],
-    },
-  });
-}
-
-function showArtifactPreset(): void {
-  void devToolCall('render_canvas', {
-    component_id: `chat-artifact-${Date.now()}`,
-    component: 'artifact_preview',
-    props: {
-      title: 'Mixtape',
-      notes: 'Tokyo Neon · 6 tracks',
-      mixtape: {
-        vibe: 'late-night drive through Tokyo neon',
-        coverUrl: tokyoNeonUrl,
-        tracks: [
-          { title: 'Midnight Driver', artist: 'Akira Vance', runtime: '4:12' },
-          { title: 'Velvet Apartment', artist: 'Noémie Hara', runtime: '3:48' },
-          { title: 'Neon Rain', artist: 'Sable Sound', runtime: '5:02' },
-          { title: 'Hyperreal', artist: 'Yoko & The Visa', runtime: '4:31' },
-          { title: 'Lights From The Tower', artist: 'CHROMERIDER', runtime: '3:55' },
-          { title: 'Akihabara Sunrise', artist: 'Aoi Tanaka', runtime: '4:24' },
-        ],
-      },
-      actions: ['ship', 'iterate', 'discard'],
-    },
-  });
 }
 
 export interface ChatSurfaceProps {
@@ -270,41 +209,6 @@ export function ChatSurface({
           >
             Send
           </button>
-
-          <div className="flex flex-wrap items-center gap-2 pl-2">
-            <button
-              type="button"
-              className="rounded-lg border border-border-subtle bg-white/5 px-3 py-2 text-xs font-medium text-text-secondary transition hover:text-text-primary"
-              onClick={() => startMixtapeDemo({ compressed: false })}
-              data-no-drag
-            >
-              Start Mixtape Demo
-            </button>
-            <button
-              type="button"
-              className="rounded-lg border border-border-subtle bg-white/5 px-3 py-2 text-xs font-medium text-text-secondary transition hover:text-text-primary"
-              onClick={() => resolveJinBlocker('mock the gateway')}
-              data-no-drag
-            >
-              Resolve Jin
-            </button>
-            <button
-              type="button"
-              className="rounded-lg border border-border-subtle bg-white/5 px-3 py-2 text-xs font-medium text-text-secondary transition hover:text-text-primary"
-              onClick={showMoodboardPreset}
-              data-no-drag
-            >
-              Show Moodboard
-            </button>
-            <button
-              type="button"
-              className="rounded-lg border border-border-subtle bg-white/5 px-3 py-2 text-xs font-medium text-text-secondary transition hover:text-text-primary"
-              onClick={showArtifactPreset}
-              data-no-drag
-            >
-              Show Artifact
-            </button>
-          </div>
         </form>
       </footer>
     </div>

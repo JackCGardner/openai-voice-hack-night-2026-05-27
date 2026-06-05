@@ -87,39 +87,7 @@ export async function handleListAgents(req: ToolCallRequest): Promise<ToolCallRe
   }
 }
 
-// ─── Real dispatch — drive the real codex-pool, not the sim mock (§3.3) ────
-
-/**
- * Flag (spec §3.3): `DIRECTOR_REAL_AGENTS`. **Default OFF** (mock/sim) for the
- * hackathon demo; `DIRECTOR_REAL_AGENTS=1` (or `true`) switches
- * `dispatch_agent_mock`'s handler body to drive the real pool. Mirrors the
- * `DIRECTOR_LEGACY_PLANNER` env-flag style used in `planner.ts`.
- *
- * The tool NAME on the Realtime surface stays `dispatch_agent_mock` so the
- * persona + enum are unchanged — only the handler body swaps.
- */
-export function useRealAgents(): boolean {
-  const raw = process.env.DIRECTOR_REAL_AGENTS;
-  return raw === '1' || raw === 'true';
-}
-
-/**
- * Flag (spec §4 item 3): `DIRECTOR_DEMO_SIM`. **Default OFF.** Gates whether
- * `dispatch_agent_mock` itself auto-kicks the Mixtape sim timeline on the
- * first dispatch. Historically the router fired the `startSim` patch on every
- * first `dispatch_agent_mock` in ANY session — an implicit demo leak (a real
- * question that dispatched an agent would start the Tokyo-neon timeline).
- *
- * The explicit demo triggers (dev `⌃⌥⌘`/`d` hotkeys, the ChatSurface "Start
- * Mixtape Demo" button) drive `startMixtapeDemo` DIRECTLY in the renderer —
- * they do NOT depend on this flag. So default-OFF removes the implicit leak
- * while keeping the demo fully invokable. Set `DIRECTOR_DEMO_SIM=1` only if you
- * want a bare `dispatch_agent_mock` call to also start the timeline.
- */
-export function useDemoSim(): boolean {
-  const raw = process.env.DIRECTOR_DEMO_SIM;
-  return raw === '1' || raw === 'true';
-}
+// ─── Real dispatch — drive the real codex-pool (the only dispatch path) ────
 
 export interface RealDispatchArgs {
   /** Canonical agent id (already resolved by the router's `resolveIdentity`). */

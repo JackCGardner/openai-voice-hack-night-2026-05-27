@@ -236,9 +236,10 @@ function registerGlobalHotkey(): void {
   }
 
   // ─── Dev keystrokes — manual Canvas QA without the Realtime layer. ────
-  // Hyper chord (Ctrl+Alt+Cmd) — nothing else uses it.
-  //   ⌃⌥⌘M → toggle Mixtape moodboard
-  //   ⌃⌥⌘A → toggle Mixtape artifact reveal
+  // Hyper chord (Ctrl+Alt+Cmd) — nothing else uses it. Neutral QA fixtures,
+  // not demo content.
+  //   ⌃⌥⌘M → toggle a sample moodboard
+  //   ⌃⌥⌘A → toggle a sample artifact preview
   //   ⌃⌥⌘H → toggle Harness rule-save flash
   //   ⌃⌥⌘X → dismiss Canvas
   if (is.dev) {
@@ -247,11 +248,6 @@ function registerGlobalHotkey(): void {
 }
 
 function registerDevCanvasShortcuts(): void {
-  const matteVinyl = `file://${resolve(APP_DIR, 'src/renderer/src/assets/matte-vinyl.png')}`;
-  const cassette = `file://${resolve(APP_DIR, 'src/renderer/src/assets/cassette.png')}`;
-  const holographic = `file://${resolve(APP_DIR, 'src/renderer/src/assets/holographic.png')}`;
-  const tokyoNeon = `file://${resolve(APP_DIR, 'src/renderer/src/assets/tokyo-neon.png')}`;
-
   const toggleMoodboard = (): void => {
     if (getCanvasWindow()?.isVisible()) {
       dismissCanvas();
@@ -261,26 +257,11 @@ function registerDevCanvasShortcuts(): void {
       component_id: `dev-moodboard-${randomUUID()}`,
       component: 'moodboard',
       props: {
-        title: 'Card material',
+        title: 'Sample moodboard',
         concepts: [
-          {
-            id: 'matte-vinyl',
-            label: 'Matte Vinyl',
-            description: 'Premium, monochrome, calm',
-            image_url: matteVinyl,
-          },
-          {
-            id: 'cassette',
-            label: 'Cassette',
-            description: 'Translucent amber, warm 80s',
-            image_url: cassette,
-          },
-          {
-            id: 'holographic',
-            label: 'Holographic',
-            description: 'Iridescent foil, playful',
-            image_url: holographic,
-          },
+          { id: 'a', label: 'Option A', description: 'Calm, monochrome' },
+          { id: 'b', label: 'Option B', description: 'Warm, textured' },
+          { id: 'c', label: 'Option C', description: 'Bold, high-contrast' },
         ],
       },
     });
@@ -295,21 +276,10 @@ function registerDevCanvasShortcuts(): void {
       component_id: `dev-artifact-${randomUUID()}`,
       component: 'artifact_preview',
       props: {
-        title: 'Mixtape',
-        notes: 'Tokyo Neon · 6 tracks',
-        mixtape: {
-          vibe: 'late-night drive through Tokyo neon',
-          coverUrl: tokyoNeon,
-          tracks: [
-            { title: 'Midnight Driver', artist: 'Akira Vance', runtime: '4:12' },
-            { title: 'Velvet Apartment', artist: 'Noémie Hara', runtime: '3:48' },
-            { title: 'Neon Rain', artist: 'Sable Sound', runtime: '5:02' },
-            { title: 'Hyperreal', artist: 'Yoko & The Visa', runtime: '4:31' },
-            { title: 'Lights From The Tower', artist: 'CHROMERIDER', runtime: '3:55' },
-            { title: 'Akihabara Sunrise', artist: 'Aoi Tanaka', runtime: '4:24' },
-          ],
-        },
-        actions: ['ship', 'iterate', 'discard'],
+        title: 'Sample artifact',
+        kind: 'html',
+        html: '<div style="padding:24px;font-family:system-ui"><h2>Sample artifact</h2><p>Canvas QA fixture — renders strictly from props.</p></div>',
+        notes: 'dev QA fixture',
       },
     });
   };

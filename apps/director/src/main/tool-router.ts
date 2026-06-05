@@ -37,7 +37,6 @@ import { consultDirector, type ConsultArgs } from './planner.js';
 import {
   appendDecision,
   appendHarnessRule,
-  queueAgentWrite,
   setLastCanvas,
 } from './side-store.js';
 // § P6.4 hang-watchdog — see EOF marker for wiring.
@@ -60,13 +59,8 @@ import type {
 import { dispatchConsult, type ConsultDelivery } from './consult-tickets.js';
 // ─── § agent-visibility (Integrate wave — spec §3.1) — list_agents ────────
 import { handleListAgents } from './agent-tools.js';
-// ─── § real-dispatch (Integrate wave — spec §3.3) — DIRECTOR_REAL_AGENTS ──
-import {
-  useRealAgents,
-  useDemoSim,
-  dispatchAgentReal,
-  resolveTargetRepo,
-} from './agent-tools.js';
+// ─── § real-dispatch — drive the real codex-pool (no mock/sim) ────────────
+import { dispatchAgentReal, resolveTargetRepo } from './agent-tools.js';
 import { dispatchAgent } from './codex-pool.js';
 import { getSessionId } from './side-store.js';
 import { homedir } from 'node:os';
@@ -110,15 +104,12 @@ interface RouterContext {
   harnessCount: number;
   /** Tracks pending ask_user prompts → their resolve fns. */
   pendingAsks: Map<string, (answer: string) => void>;
-  /** True after the first dispatch_agent_mock call — gates sim start. */
-  simKicked: boolean;
 }
 
 const ctx: RouterContext = {
   stripWindow: null,
   harnessCount: 0,
   pendingAsks: new Map(),
-  simKicked: false,
 };
 
 export function setToolRouterStripWindow(window: BrowserWindow | null): void {
@@ -131,7 +122,6 @@ export function setToolRouterStripWindow(window: BrowserWindow | null): void {
  */
 export function resetToolRouter(): void {
   ctx.harnessCount = 0;
-  ctx.simKicked = false;
   ctx.pendingAsks.clear();
 }
 
@@ -236,109 +226,53 @@ async function handleDispatchAgentMock(
   // from the canonical IDENTITY table. Closed enum prevents the AI from
   // hallucinating role/name pairs that don't match.
   const identity = resolveIdentity(args.agent);
-  const agentId = identity.id;
 
-  // ─── § real-dispatch (Integrate wave — spec §3.3) ──────────────────────
-  // DIRECTOR_REAL_AGENTS (default OFF) swaps the handler BODY to drive the
-  // real codex-pool while keeping the same tool name on the wire. In the real
-  // branch we SKIP the synthetic addAgent patch AND the startSim block — the
-  // pool emits codex.event { agent_started } which ipcSync.handleCodexEvent
-  // maps to commands.addAgent (avoids double-adding). targetRepo is the
-  // roaming cwd / DIRECTOR_PROJECT_ROOT / $HOME (no project picker).
-  if (useRealAgents()) {
-    const res = await dispatchAgentReal(
-      {
-        agentId: identity.id,
-        name: identity.name,
-        role: identity.role,
-        task: args.task,
-        targetRepo: resolveTargetRepo(homedir()),
-      },
-      getSessionId() ?? '',
-      dispatchAgent,
-    );
-    if (!res.ok) {
-      return {
-        ok: false,
-        callId: req.callId,
-        error: res.error,
-        latencyMs: Date.now() - startedAt,
-      };
-    }
-    // Log the dispatch decision (the pool's events drive the store).
-    appendDecision({
-      at: Date.now(),
-      kind: 'agent_dispatched',
-      payload: {
-        agent_id: res.agent_id,
-        name: identity.name,
-        role: identity.role,
-        task: args.task,
-        worktree: res.worktree,
-        branch: res.branch,
-        real: true,
-      },
-    }).catch((err) => console.warn('[tool-router] decision log failed', err));
+  // Real dispatch ONLY — drives the codex-pool to spawn an actual Codex
+  // subprocess in a git worktree. The pool emits codex.event { agent_started }
+  // → ipcSync.handleCodexEvent → commands.addAgent, so we do NOT add a
+  // synthetic agent here. targetRepo is the user's project root
+  // (DIRECTOR_PROJECT_ROOT) or the roaming cwd; if that isn't a git repo the
+  // pool returns ok:false and Director narrates the failure ("point me at a
+  // project first"). No mock, no sim — this is real end to end.
+  const res = await dispatchAgentReal(
+    {
+      agentId: identity.id,
+      name: identity.name,
+      role: identity.role,
+      task: args.task,
+      targetRepo: resolveTargetRepo(homedir()),
+    },
+    getSessionId() ?? '',
+    dispatchAgent,
+  );
+  if (!res.ok) {
     return {
-      ok: true,
+      ok: false,
       callId: req.callId,
-      output: {
-        agent_id: res.agent_id,
-        worktree: res.worktree,
-        branch: res.branch,
-      },
+      error: res.error,
       latencyMs: Date.now() - startedAt,
     };
   }
-
-  // ─── Mock / sim branch (default — demo path unchanged) ─────────────────
-  const agent = {
-    id: agentId,
-    name: identity.name,
-    role: identity.role,
-    accentColor: identity.accentColor,
-    status: 'working' as const,
-    currentTask: args.task,
-    taskTrail: [args.task],
-    recentFiles: [] as string[],
-    blocker: null,
-    worktreePath: `~/.director/worktrees/${agentId}`,
-    codexThreadId: null,
-    dispatchedAt: Date.now(),
-    finishedAt: null,
-  };
-
-  sendStripPatch('agents', { action: 'addAgent', agent });
-
-  // Persist agent snapshot to disk (debounced 100ms — non-blocking).
-  // Fire-and-forget the decision log.
-  queueAgentWrite(agent);
   appendDecision({
     at: Date.now(),
     kind: 'agent_dispatched',
-    payload: { agent_id: agentId, name: identity.name, role: identity.role, task: args.task },
+    payload: {
+      agent_id: res.agent_id,
+      name: identity.name,
+      role: identity.role,
+      task: args.task,
+      worktree: res.worktree,
+      branch: res.branch,
+    },
   }).catch((err) => console.warn('[tool-router] decision log failed', err));
-
-  // ─── § demo-gating (Integrate wave — spec §4 item 3) ───────────────────
-  // Historically the FIRST dispatch_agent_mock auto-kicked the Mixtape sim
-  // (trail updates, the T+1:45 Jin block, staggered completions) in ANY
-  // session — an implicit demo leak. Now gated behind DIRECTOR_DEMO_SIM
-  // (default OFF). The explicit demo triggers (dev hotkeys, ChatSurface
-  // button) call startMixtapeDemo directly in the renderer and do NOT depend
-  // on this — so OFF removes the leak while keeping the demo invokable.
-  if (useDemoSim() && !ctx.simKicked) {
-    ctx.simKicked = true;
-    sendStripPatch('strip', {
-      action: 'startSim',
-      compressed: false,
-      seedAgents: false,
-    });
-  }
-
   return {
     ok: true,
     callId: req.callId,
-    output: { agent_id: agentId },
+    output: {
+      agent_id: res.agent_id,
+      worktree: res.worktree,
+      branch: res.branch,
+    },
     latencyMs: Date.now() - startedAt,
   };
 }

@@ -1,12 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type JSX } from 'react';
 import { useRealtimeClient } from './hooks/useRealtimeClient';
 import { useStore } from './state/store';
-import {
-  startMixtapeDemo,
-  resolveJinBlocker,
-  stopMixtapeDemo,
-  isAwaitingResolution,
-} from './state/sim';
 import { ChatSurface, type ChatMessage } from './components/ChatSurface';
 import { StripSurface } from './components/StripSurface';
 import { devToolCall } from './lib/toolBridge';
@@ -18,11 +12,6 @@ import { useAssistantCaptionStream } from './hooks/useAssistantCaptionStream';
 import { useStripDragHandle } from './hooks/useStripDragHandle';
 import { useOnboarding } from './hooks/useOnboarding';
 import { useAudioCuesMount } from './hooks/useAudioCuesMount';
-
-// EscalationDetail was removed from state/sim; we now treat the
-// escalation CustomEvent payload as a structural shape rather than a
-// named type. W3 will reintroduce a typed contract here.
-type EscalationDetail = { reason?: string; agent?: string; [k: string]: unknown };
 
 const IS_DEV = typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production';
 
@@ -378,59 +367,10 @@ export function App(): JSX.Element {
     };
   }, [client]);
 
-  // Listen for the sim's escalation event and bridge it into Realtime as a
-  // server-initiated response. Per docs/research/gpt-realtime-2.md §8, we
-  // inject a system-role conversation item describing the blocker and the
-  // resolution question, then force a `response.create` so Director speaks
-  // unprompted through the existing peer connection.
-  useEffect(() => {
-    const onEscalation = (event: Event): void => {
-      const ce = event as CustomEvent<EscalationDetail>;
-      const detail = ce.detail ?? {};
-      console.log('[escalation]', detail);
-
-      const agentId =
-        (detail.agent_id as string | undefined) ??
-        (detail.agent as string | undefined) ??
-        'an agent';
-      const blocker =
-        (detail.blocker as string | undefined) ??
-        (detail.reason as string | undefined) ??
-        'unspecified blocker';
-      const suggestedQuestion =
-        (detail.suggested_question as string | undefined) ?? 'How should we proceed?';
-
-      const text =
-        `An agent named ${agentId} is blocked: ${blocker}. ` +
-        `Ask the user: '${suggestedQuestion}' Be brief, terse, polite.`;
-
-      if (client.status !== 'connected' || !client.dcReady) {
-        console.warn(
-          `[escalation] Realtime not ready (status=${client.status}, dcReady=${client.dcReady}); skipping injection`,
-        );
-        return;
-      }
-
-      const okItem = client.send({
-        type: 'conversation.item.create',
-        item: {
-          type: 'message',
-          role: 'system',
-          content: [{ type: 'input_text', text }],
-        },
-      });
-      const okResp = client.send({ type: 'response.create' });
-
-      if (!okItem || !okResp) {
-        console.warn('[escalation] data channel not open; injection partially failed');
-        return;
-      }
-
-      console.log(`[escalation] dispatched: ${text}`);
-    };
-    window.addEventListener('director:escalation', onEscalation);
-    return () => window.removeEventListener('director:escalation', onEscalation);
-  }, [client]);
+  // (Removed: the sim's `director:escalation` CustomEvent bridge. Real
+  // escalations — e.g. the Codex hang watchdog — now arrive via
+  // IpcChannel.ToolProactiveAnnounce and are injected by the proactive-announce
+  // consumer below. No window-event demo path.)
 
   // ─── § proactive-announce (Integrate wave — spec §1.7) ──────────────────
   // Subscribe to main-pushed proactive announcements (IpcChannel.
@@ -486,10 +426,10 @@ export function App(): JSX.Element {
     });
   }, [surface, stripKind]);
 
-  // Dev switcher — only in development. 1-7 cycle strip states; D starts
-  // the Mixtape sim; R resolves Jin; X stops; T/H fire tool-router smoke
-  // tests. Real interactions (hotkey + Realtime events) drive the strip
-  // in production.
+  // Dev switcher — only in development. 1-7 cycle strip states for visual
+  // inspection; T fires a real dispatch smoke; H fires an update_harness
+  // smoke. Real interactions (hotkey + Realtime events) drive the strip in
+  // production.
   useEffect(() => {
     if (!IS_DEV) return;
     const onKey = (e: KeyboardEvent): void => {
@@ -541,31 +481,15 @@ export function App(): JSX.Element {
           useStore.setState({
             strip: { kind: 'hive', activeAgentId: null, since: Date.now() },
           }),
-        d: () => startMixtapeDemo(),
-        D: () => startMixtapeDemo({ compressed: false }),
-        r: () => {
-          if (isAwaitingResolution()) {
-            resolveJinBlocker('mock the Stripe gateway for now');
-          }
-        },
-        R: () => {
-          if (isAwaitingResolution()) {
-            resolveJinBlocker('mock the Stripe gateway for now');
-          }
-        },
-        x: () => stopMixtapeDemo(),
-        X: () => stopMixtapeDemo(),
         t: () =>
           void devToolCall('dispatch_agent_mock', {
-            name: 'Maya',
-            role: 'frontend',
-            task: 'PlaylistCard with flip',
+            agent: 'maya',
+            task: 'dev smoke: build a hello-world component',
           }),
         T: () =>
           void devToolCall('dispatch_agent_mock', {
-            name: 'Maya',
-            role: 'frontend',
-            task: 'PlaylistCard with flip',
+            agent: 'maya',
+            task: 'dev smoke: build a hello-world component',
           }),
         h: () =>
           void devToolCall('update_harness', {

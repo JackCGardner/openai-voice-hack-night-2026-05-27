@@ -26,7 +26,6 @@ import type {
   StatePatchPayload,
 } from '../../../shared/ipc.js';
 import type { CodexEvent } from '../../../shared/codex.js';
-import { startMixtapeDemo, resolveJinBlocker, isDemoRunning } from './sim.js';
 
 // ─── Patch action shapes (mirror tool-router) ────────────────────────────
 
@@ -46,17 +45,10 @@ interface AddHarnessRulePatch {
   rule: HarnessRule;
 }
 
-interface StartSimPatch {
-  action: 'startSim';
-  compressed: boolean;
-  seedAgents?: boolean;
-}
-
 type StateAction =
   | AddAgentPatch
   | UpdateAgentPatch
-  | AddHarnessRulePatch
-  | StartSimPatch;
+  | AddHarnessRulePatch;
 
 function isAction(v: unknown): v is StateAction {
   return (
@@ -85,12 +77,6 @@ function applyPatch(payload: StatePatchPayload): void {
     case 'addHarnessRule':
       commands.addHarnessRule(patch.rule);
       return;
-    case 'startSim': {
-      const compressed = patch.compressed;
-      const seedAgents = patch.seedAgents !== false;
-      startMixtapeDemo({ compressed, seedAgents });
-      return;
-    }
     default: {
       const _exhaust: never = patch;
       void _exhaust;
@@ -337,14 +323,9 @@ export function handleCodexEvent(event: CodexEvent): void {
 // ─── ask.show handler ────────────────────────────────────────────────────
 
 /**
- * Default ask-user handler — bridges Director's `ask_user` tool into the
- * Mixtape sim. For the demo, the only ask the orchestration layer fires
- * is the Stripe-blocker resolution; treating any incoming answer as Jin's
- * resolution keeps the sim's `awaitingResolution` flag in lockstep with
- * the model's view of the world.
- *
- * If no orchestration layer is wired yet, this still works: the strip
- * acks instantly with `"timeout"` so the model isn't stuck.
+ * ask-user handler — Director's `ask_user` tool surfaces a question to the
+ * user. The ask stays pending until the renderer fires `answerAsk(...)` (via
+ * voice or click) or the main-side timeout elapses. No demo routing.
  */
 function handleAsk(payload: AskShowPayload): void {
   console.log('[ipcSync] ask.show', payload);
@@ -353,12 +334,6 @@ function handleAsk(payload: AskShowPayload): void {
     console.warn('[ipcSync] bridge.ask not available — cannot answer');
     return;
   }
-
-  // Default answer policy for the Mixtape demo: route to resolveJinBlocker
-  // if the user types/speaks into the strip later. For now we wait — the
-  // dev `R` key (or the orchestration layer) will call resolveJinBlocker
-  // which doesn't reach back here. The ask remains pending until either
-  // the renderer fires an answer or the main-side 60s timeout elapses.
   void payload;
 }
 
@@ -789,23 +764,10 @@ export function teardownIpcSync(): void {
   initialized = false;
 }
 
-/**
- * Answer the currently-pending ask via the bridge. Optionally also drives
- * the sim's `resolveJinBlocker` to keep the timeline aligned.
- */
+/** Answer the currently-pending ask via the bridge. */
 export function answerAsk(askId: string, answer: string): void {
   const bridge = window.director;
   bridge?.ask?.answer({ ask_id: askId, answer });
-  // ─── § demo-gating (Integrate wave — spec §4 item 5) ───────────────────
-  // The Mixtape demo's single ask is Jin's Stripe blocker — keep the sim's
-  // awaitingResolution flag aligned ONLY when the sim is actually running.
-  // In production, ask_user answers route only to the pending-ask resolver
-  // (the bridge.ask.answer above), never to the sim. resolveJinBlocker is
-  // already a no-op when `!active`, but gating on isDemoRunning() makes the
-  // production/non-leak contract explicit.
-  if (isDemoRunning()) {
-    resolveJinBlocker(answer);
-  }
 }
 
 /** Used in tests + dev tools. */
