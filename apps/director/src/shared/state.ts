@@ -117,6 +117,10 @@ export type CanvasComponentName =
   // 'html_escape' was the earlier sketch name. Not a gate (CanvasApp's switch
   // is), but listed for parity with shared/realtime.ts.
   | 'html'
+  // ─── § genui-gantt (Integrate wave — spec §9.3 / Appendix II) ──────────
+  // Plan + live-progress chart. The real gate is CanvasApp's switch; listed
+  // here for parity with the render_canvas enum (shared/realtime.ts).
+  | 'gantt'
   | 'harness_flash';
 
 export interface CanvasComponentProps {

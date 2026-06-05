@@ -48,6 +48,12 @@ import { HtmlView, type HtmlViewProps } from './components/HtmlView';
 import { CodePreview, type CodePreviewProps } from './components/CodePreview';
 import { DiagramView, type DiagramViewProps } from './components/DiagramView';
 import { AgentPod, type AgentPodProps } from './components/AgentPod';
+// ─── § genui-gantt (Integrate wave — spec §9) ────────────────────────────
+// Plan + live-progress chart. The component file is GanttChart.tsx but the
+// canonical export is `Gantt` (the render_canvas 'component' enum value is
+// 'gantt'). Display-only — no onRespond; re-rendered with updated statuses as
+// work advances (keyed by task.id so a status flip animates in place).
+import { Gantt, type GanttProps } from './components/GanttChart';
 
 type IpcRendererLike = {
   on: (channel: string, listener: (...args: unknown[]) => void) => void;
@@ -272,6 +278,11 @@ function CanvasBody({
       // Display-only — live Hive in the Canvas, driven by the ipcSync relay
       // (spec §3.2). No onRespond.
       return <AgentPod {...(payload.props as unknown as AgentPodProps)} />;
+    // ─── § genui-gantt (Integrate wave — spec §9) ───────────────────────
+    case 'gantt':
+      // Display-only — plan + live-progress chart. Re-render with updated
+      // status/nowPct as work advances (rows keyed by task.id). No onRespond.
+      return <Gantt {...(payload.props as unknown as GanttProps)} />;
     case 'canvas_error':
       // A `canvas_error` payload arriving from main is rare (the boundary
       // catches local render throws), but support it so an upstream caller
