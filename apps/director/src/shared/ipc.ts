@@ -94,7 +94,9 @@ export const IpcChannel = {
   // Do NOT modify entries above this marker without a contract change
   // (docs(contracts): change <name> commit).
   PlannerConsult: 'planner.consult',                  // Worker 1 — P3
-  PlannerReasoningDelta: 'planner.reasoning.delta',   // Worker 1 — P3
+  // (Removed PlannerReasoningDelta 'planner.reasoning.delta' — the per-delta
+  // reasoning stream was replaced by the async-consult proactiveAnnounce path;
+  // it had zero producers/consumers. See planner.ts consultDirector docstring.)
   SidestoreSnapshot: 'sidestore.snapshot',            // Worker 3 — P3
   // ─── codex.* (real Codex subprocesses) ────────────────────────────────
   CodexEvent: 'codex.event',                          // Worker 1 — P4
