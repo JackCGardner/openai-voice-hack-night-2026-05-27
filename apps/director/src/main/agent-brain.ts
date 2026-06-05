@@ -32,13 +32,13 @@ import {
   run,
   tool,
   shellTool,
-  imageGenerationTool,
   setDefaultOpenAIKey,
   MCPServerStdio,
   type Shell,
   type ShellAction,
   type ShellResult,
 } from '@openai/agents';
+import OpenAI from 'openai'; // default export, same as main/index.ts
 import { z } from 'zod';
 import type { CanvasComponentName, CanvasComponentProps } from '../shared/canvas-ipc.js';
 // NOTE: `renderCanvas` lives in ./canvas.ts which imports `electron`. We import
@@ -85,13 +85,16 @@ function isCatastrophic(command: string): boolean {
   return CATASTROPHIC.some((re) => re.test(command));
 }
 
-// ─── Generated-image persistence (image-gen moodboard, spec §10) ─────────
-// `imageGenerationTool` is a HOSTED tool: the bytes come back as base64 on the
-// run result, NOT as a URL the Canvas can fetch. The contract is generate →
-// persist → pass a `file://` path to the moodboard (the Canvas never receives
-// raw tool output). This helper is the reliable write path so the Brain doesn't
-// have to base64-pipe through the shell (quoting-fragile). It writes under
-// homedir() — the same trust zone the shell already roams.
+// ─── Generated-image persistence (real `generate_image` tool, finish-spec §A) ─
+// The brain can't call a TS function, so image generation is a real local
+// FUNCTION tool (`generate_image`, below) whose executor runs in THIS main
+// process: it calls the OpenAI Images API, hands the base64 bytes to THIS
+// helper to persist on disk, and RETURNS a renderable image reference to the
+// brain. The Canvas CSP (`img-src 'self' data: blob:` — canvas.html) blocks
+// `file:`, so the brain shows the moodboard with the `data:` URL the executor
+// returns, NOT the on-disk path. We still write the file for an on-disk
+// artifact + a path the brain can mention (and future non-Canvas surfaces).
+// It writes under homedir() — the same trust zone the shell already roams.
 const GENERATED_DIR = join(homedir(), '.director', 'generated');
 
 function slugify(s: string): string {
@@ -106,15 +109,15 @@ function slugify(s: string): string {
 
 /**
  * Persist one generated image to `~/.director/generated/<ts>-<slug>.<ext>` and
- * return BOTH the absolute path and a `file://` URL (the form the moodboard's
- * `image_url` accepts). `data` is the raw base64 string the hosted
- * image-generation tool returns (a bare base64 body, or a full
- * `data:image/...;base64,…` data-URL — both are accepted). Throws nothing the
- * caller can't see; the Brain references the returned `fileUrl` in a
- * `render_canvas('moodboard', …)` concept.
+ * return BOTH the absolute path and a `file://` URL of that path. `data` is the
+ * raw base64 image body (a bare base64 string, or a full
+ * `data:image/...;base64,…` data-URL — both are accepted). The `file://` URL is
+ * for logs / on-disk reference ONLY; the Canvas CSP blocks `file:`, so the
+ * `generate_image` executor returns the inline `data:` URL to the brain for
+ * moodboard display (finish-spec §A.1 finding 1), never this path.
  *
- * Exported so the wiring is unit-testable headlessly and so a future
- * result-parser can call it directly.
+ * Exported so the wiring is unit-testable headlessly and so the
+ * `generateImageImpl` executor can call it directly.
  */
 export function saveGeneratedImage(
   data: string,
@@ -132,14 +135,121 @@ export function saveGeneratedImage(
   return { path: abs, fileUrl: pathToFileURL(abs).href };
 }
 
+// ─── generate_image — real local image-generation tool (finish-spec §A) ──
+// A REAL function tool (not the hosted imageGenerationTool, which returned
+// bytes nothing captured and whose persona told the LLM to call a TS function
+// it cannot call). The executor runs here in the main process: OpenAI Images
+// API → base64 → saveGeneratedImage() → return a CSP-safe `data:` URL the
+// brain shows on a moodboard. gpt-image-1 always returns base64; dall-e-3
+// (the DIRECTOR_IMAGE_MODEL fallback) needs response_format:'b64_json'.
+const IMAGE_MODEL = process.env.DIRECTOR_IMAGE_MODEL || 'gpt-image-1';
+const IMAGE_SIZE_DEFAULT = '1024x1024';
+
+/** The image sizes we expose to the brain (a safe subset of the SDK's union). */
+type ImageSize = '1024x1024' | '1536x1024' | '1024x1536' | 'auto';
+
+// Lazily-constructed Images client. A test seam (`_setImagesClientForTests`)
+// lets headless unit tests inject a fake so no network/key is needed.
+let imagesClient: OpenAI | null = null;
+function getImagesClient(): OpenAI {
+  if (!imagesClient) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error('OPENAI_API_KEY missing in main process env');
+    imagesClient = new OpenAI({ apiKey });
+  }
+  return imagesClient;
+}
+
+export interface GeneratedImageRef {
+  ok: true;
+  /** Inline data: URL — the form the Canvas can ACTUALLY render (CSP img-src data:). */
+  image_url: string;
+  /** Absolute path to the saved file on disk (~/.director/generated/…). */
+  path: string;
+  /** file:// URL of the saved file — NOT for the Canvas; for logs / future surfaces. */
+  file_url: string;
+  /** Echo of the resolved label so the brain can reuse it as the concept label. */
+  label?: string;
+}
+
+/**
+ * Generate ONE image via the OpenAI Images API, persist it, and return a
+ * CSP-safe `data:` URL (plus the on-disk path/file:// for reference). Runs in
+ * the main process. The optional `client` arg is a test seam — production
+ * callers omit it and get the lazily-built singleton.
+ */
+export async function generateImageImpl(
+  opts: { prompt: string; label?: string; size?: string },
+  client: OpenAI = getImagesClient(),
+): Promise<GeneratedImageRef> {
+  const size = (opts.size as ImageSize | undefined) ?? IMAGE_SIZE_DEFAULT;
+  const resp = await client.images.generate({
+    model: IMAGE_MODEL, // gpt-image-1 (configurable via DIRECTOR_IMAGE_MODEL)
+    prompt: opts.prompt,
+    size,
+    n: 1,
+    // dall-e-3 needs this to return base64; gpt-image-1 ignores it (always b64).
+    response_format: 'b64_json',
+  });
+  const b64 = resp.data?.[0]?.b64_json;
+  if (!b64) throw new Error('Images API returned no base64 image data');
+  // Persist (reuses the existing helper — feed it the bare base64 body).
+  const saved = saveGeneratedImage(b64, { label: opts.label, ext: 'png' });
+  return {
+    ok: true,
+    image_url: `data:image/png;base64,${b64}`, // CSP-safe, renders in Moodboard
+    path: saved.path,
+    file_url: saved.fileUrl,
+    label: opts.label,
+  };
+}
+
+const generateImageTool = tool({
+  name: 'generate_image',
+  description:
+    'Generate ONE piece of concept art from a text prompt (mood, texture, hero ' +
+    'imagery, a brand look). Returns a renderable image_url (an inline data: URL) ' +
+    'plus a saved file path. Call this once per concept, collect the image_urls, ' +
+    "then call show_canvas('moodboard', …) with all of them. This is how you make " +
+    'generative imagery — the voice layer cannot, and routes these requests to you.',
+  parameters: z.object({
+    prompt: z.string().describe('What to draw. Be vivid and specific.'),
+    label: z
+      .string()
+      .nullable()
+      .describe('Short human label for this concept (used in the saved filename).'),
+    size: z
+      .enum(['1024x1024', '1536x1024', '1024x1536', 'auto'])
+      .nullable()
+      .describe('Image size. Default 1024x1024. Use 1536x1024 for hero/landscape.'),
+  }),
+  async execute({ prompt, label, size }) {
+    try {
+      const result = await generateImageImpl({
+        prompt,
+        label: label ?? undefined,
+        size: size ?? undefined,
+      });
+      // Return a JSON string (same pattern as show_canvas). The brain reads
+      // image_url out of this and passes it into a moodboard concept.
+      return JSON.stringify(result);
+    } catch (err) {
+      return JSON.stringify({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  },
+});
+
 // ─── show_canvas — the Brain's bridge to the visual Canvas ───────────────
 // The Brain runs in the MAIN process, so it can drive the Canvas window
 // directly via renderCanvas() — no IPC round-trip. This is what makes the
-// Brain's work VISIBLE: a generated moodboard (image_url = file:// paths from
-// saveGeneratedImage), a gantt plan, a code_preview, a diagram, an html
-// layout. Without it, image generation produced files nothing ever displayed
-// (the foreground would open an empty moodboard). Props come as a JSON string
-// so the hosted tool schema stays simple + strict-safe; we parse + forward.
+// Brain's work VISIBLE: a generated moodboard (image_url = the `data:` URLs
+// returned by the generate_image tool), a gantt plan, a code_preview, a
+// diagram, an html layout. Without it, image generation produced files nothing
+// ever displayed (the foreground would open an empty moodboard). Props come as
+// a JSON string so the tool schema stays simple + strict-safe; we parse + forward.
 const CANVAS_COMPONENTS = [
   'moodboard',
   'options_picker',
@@ -155,13 +265,13 @@ const CANVAS_COMPONENTS = [
 const showCanvasTool = tool({
   name: 'show_canvas',
   description:
-    "Display a component on the user's Canvas (the big visual surface). This is how your work becomes VISIBLE — prefer showing over describing. Use it for a generated moodboard (concepts with image_url file:// paths from your image generation), a gantt plan, code_preview, a diagram, or an html layout. Never describe a moodboard in words when you can show it.",
+    "Display a component on the user's Canvas (the big visual surface). This is how your work becomes VISIBLE — prefer showing over describing. Use it for a generated moodboard (concepts whose image_url is a data: URL returned by the generate_image tool), a gantt plan, code_preview, a diagram, or an html layout. Never describe a moodboard in words when you can show it.",
   parameters: z.object({
     component: z.enum(CANVAS_COMPONENTS),
     props_json: z
       .string()
       .describe(
-        'The component props as a JSON string. moodboard example: {"title":"Ergon landing","concepts":[{"id":"a","label":"Calm","description":"…","image_url":"file:///Users/…/.director/generated/123-calm.png"}]}',
+        'The component props as a JSON string. moodboard example: {"title":"Ergon landing","concepts":[{"id":"a","label":"Calm","description":"…","image_url":"data:image/png;base64,iVBORw0KGgo…"}]} (use the data: URLs returned by generate_image).',
       ),
   }),
   async execute({ component, props_json }) {
@@ -296,7 +406,7 @@ const BRAIN_INSTRUCTIONS = `You are the Director's deep brain — the manager's 
 # Visual & frontend design — use Pencil
 - For ANY visual or frontend design work — a landing page, a marketing section, a widget, a UI component, a layout — use the Pencil design tools (the \`pencil\` MCP, when available). Design it there first; don't hand-write speculative HTML/CSS when you can compose it visually.
 - To SHOW the user anything, call the \`show_canvas\` tool (component + props_json). It drives the Canvas directly. Prefer showing the artifact over describing it. For a Pencil design: screenshot/export it, then show the image (moodboard) or its HTML (component:'html').
-- For GENERATIVE concept art — mood, texture, hero imagery, brand looks judged by eye — use \`imageGenerationTool\`. It's hosted: it returns image BYTES, not a fetchable URL. So for EACH image: SAVE it with \`saveGeneratedImage(data, { label })\` (writes to ~/.director/generated, returns a \`file://\` URL), THEN show them with \`show_canvas\` — component:'moodboard', props_json = JSON.stringify({ title, concepts: [{ id, label, description, image_url: <the file:// URL> }] }). Generate + save FIRST, then show ONE moodboard with all the concepts — never show an empty moodboard. Image generation is YOUR job (the voice layer can't do it and will hand these requests to you).
+- For GENERATIVE concept art — mood, texture, hero imagery, brand looks judged by eye — call the \`generate_image\` tool once per concept (\`{ prompt, label }\`). It returns an \`image_url\` you can show directly. Collect each \`image_url\`, then call \`show_canvas\` once — component:'moodboard', props_json = JSON.stringify({ title, concepts: [{ id, label, description, image_url }] }). Generate every image FIRST, then show ONE moodboard with all concepts — never show an empty moodboard. Image generation is YOUR job (the voice layer can't do it and routes these to you).
 - If the Pencil tools aren't present in this session, say so plainly and fall back to writing the markup directly with the shell — don't pretend to have designed something you couldn't.
 
 # When to do it yourself vs hand to Codex
@@ -375,13 +485,13 @@ async function getAgent(): Promise<Agent> {
         shell: makeLocalShell(cwd),
         needsApproval: false, // seatbelt is the denylist; no approval UI yet
       }),
-      // Hosted image-generation tool (runs server-side; returns base64 on the
-      // run result). The Brain uses it for GENERATIVE concept art — mood,
-      // texture, hero imagery — then persists the bytes via saveGeneratedImage
-      // and surfaces them as a `moodboard` of `file://` concept images (spec
-      // §10). Structured layout/design still prefers Pencil (per the persona).
-      // No executor: it's a HostedTool, run by the model server-side.
-      imageGenerationTool(),
+      // Real local image-generation tool (finish-spec §A). Executor runs in
+      // this main process: OpenAI Images API → base64 → saveGeneratedImage →
+      // returns a CSP-safe `data:` URL the brain shows on a moodboard. Replaces
+      // the old hosted imageGenerationTool (whose bytes nothing captured and
+      // whose persona told the LLM to call a TS function it cannot call).
+      // Structured layout/design still prefers Pencil (per the persona).
+      generateImageTool,
       // The bridge that makes the Brain's work visible (moodboards, gantt,
       // code, diagrams) by driving the Canvas window directly.
       showCanvasTool,
@@ -419,5 +529,21 @@ export async function runAgentBrain(prompt: string): Promise<AgentBrainResult> {
   return { summary, decisions: [], full_text: summary };
 }
 
-/** Test/diagnostic hook — exposed so the catastrophic guard + image-save are unit-testable. */
-export const _internals = { isCatastrophic, saveGeneratedImage, GENERATED_DIR };
+/**
+ * Test/diagnostic hook — exposed so the catastrophic guard, image-save, and the
+ * `generate_image` executor + tool are unit-testable headlessly. `generateImageTool`
+ * is the live tool object (tests call its `.invoke`/`execute` with a fake client
+ * injected via `_setImagesClientForTests`); `_setImagesClientForTests(null)` resets
+ * back to the lazy production singleton.
+ */
+export const _internals = {
+  isCatastrophic,
+  saveGeneratedImage,
+  GENERATED_DIR,
+  generateImageImpl,
+  generateImageTool,
+  IMAGE_MODEL,
+  _setImagesClientForTests(client: OpenAI | null) {
+    imagesClient = client;
+  },
+};
