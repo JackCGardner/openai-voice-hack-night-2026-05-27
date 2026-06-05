@@ -29,6 +29,7 @@ import {
   PERSISTENT_DEGRADED_AFTER_ATTEMPTS,
 } from './reconnect-schedule.js';
 import { renderBriefAsSystemText } from './brief-text.js';
+import { thinkingTicketIdFromToolResult } from './pending-consults.js';
 
 const SDP_URL = 'https://api.openai.com/v1/realtime/calls';
 
@@ -57,6 +58,15 @@ export interface RealtimeClientEvents {
   micMode: MicMode;
   /** Fires when the mic or remote MediaStream becomes available / goes away. */
   streams: RealtimeStreams;
+  /**
+   * Fires when a `consult_director` tool call returns its fire-and-forget
+   * `{ status:'thinking', ticketId }` ack. App.tsx uses this to register an
+   * in-flight consult (PendingConsults.add) and hold the idle-teardown peer
+   * until the matching proactive announce arrives. This is the renderer's
+   * ONLY observation point for the ticketId before the real answer lands —
+   * the tool result is otherwise injected straight back to the model.
+   */
+  consultThinking: { ticketId: string };
 }
 
 type Listener<T> = (payload: T) => void;
@@ -73,6 +83,7 @@ export class RealtimeClient {
     error: new Set(),
     micMode: new Set(),
     streams: new Set(),
+    consultThinking: new Set(),
   };
   private _status: RealtimeClientStatus = 'idle';
   private _micMode: MicMode = 'muted';
@@ -90,6 +101,18 @@ export class RealtimeClient {
   /** Grace window before tearing down an idle-but-connected session.
    *  Default 45s; override via `setIdleTeardownMs()` (tests / demos). */
   private idleTeardownMs = 45_000;
+  /**
+   * Idle-teardown hold ref-count (cost-control safety valve). While > 0 the
+   * idle clock is SUPPRESSED — no teardown can fire and `armIdleTeardown`
+   * no-ops. App.tsx holds the peer while an async `consult_director` is in
+   * flight (the deep brain — gpt-5.5, full shell — can think for 5–30s, far
+   * longer than the 45s grace window once the user goes quiet). Without this,
+   * the peer is torn down mid-think and the answer announce is dropped. Each
+   * `holdPeer(true)` increments; `holdPeer(false)` decrements; at 0 the normal
+   * idle behaviour resumes. Ref-counted (not a bool) so overlapping consults
+   * compose correctly. See pending-consults.ts for the producer side.
+   */
+  private idleHoldCount = 0;
 
   // ─── § rotation + reconnect (W2 — P6.1 + P6.2) ─────────────────────────
   /** Standby peer connection during rotation. Becomes the primary on swap. */
@@ -284,9 +307,11 @@ export class RealtimeClient {
   }
 
   /**
-   * Forward a model tool call to main via IPC, wait for the stub result,
-   * then push it back into the conversation as a `function_call_output` +
-   * `response.create`. W3/W4 will replace the stub with real handlers.
+   * Forward a model tool call to main via IPC, wait for the result, then push
+   * it back into the conversation as a `function_call_output` +
+   * `response.create`. Main's `tool-router.routeToolCall` handles these for
+   * real now (consult_director, dispatch_agent, render_canvas, list_agents,
+   * …) — there is no longer a `{ok:true}` stub.
    */
   private async dispatchTool(req: ToolCallRequest): Promise<void> {
     console.log(`[realtime] tool.call → main name=${req.name} callId=${req.callId}`);
@@ -297,6 +322,19 @@ export class RealtimeClient {
     }
     try {
       const result = await bridge.tool.call(req);
+      // ─── § consult-hold (idle-teardown safety valve) ─────────────────────
+      // A `consult_director` call returns a fire-and-forget
+      // `{ status:'thinking', ticketId }` ack here; the real answer arrives
+      // seconds later as a proactive announce. Surface the ticketId so App can
+      // hold the peer open until that announce lands (the deep brain outlasts
+      // the 45s idle grace once the user goes quiet). This is the only point
+      // the renderer sees the ticketId before the answer.
+      if (result.ok) {
+        const thinkingTicketId = thinkingTicketIdFromToolResult(result.output);
+        if (thinkingTicketId) {
+          this.emit('consultThinking', { ticketId: thinkingTicketId });
+        }
+      }
       // Always feed *something* back so the model isn't left hanging.
       const output = result.ok ? result.output : { error: result.error };
       const sentItem = this.send({
@@ -545,6 +583,10 @@ export class RealtimeClient {
     this.clearIdleTeardown();
     // Only meaningful while connected; idle/closed peers cost nothing.
     if (this._status !== 'connected') return;
+    // Suppressed while a consult (or any caller-held activity) is in flight —
+    // never tear the peer down under a slow brain answer that's about to be
+    // spoken. The clock re-arms when the last hold releases (see holdPeer).
+    if (this.idleHoldCount > 0) return;
     this.idleTeardownTimer = setTimeout(() => {
       this.idleTeardownTimer = null;
       // Re-check at fire time: a re-opened mic or a reconnect in flight
@@ -567,6 +609,47 @@ export class RealtimeClient {
   /** Override the idle-teardown grace window (tests / demos). */
   setIdleTeardownMs(ms: number): void {
     if (Number.isFinite(ms) && ms > 0) this.idleTeardownMs = ms;
+  }
+
+  /**
+   * Hold / release the idle-teardown clock (cost-control safety valve).
+   *
+   * `holdPeer(true)` pauses idle-teardown: it bumps a ref-count and clears any
+   * armed teardown timer so the peer stays warm. `holdPeer(false)` releases:
+   * it decrements the ref-count (floored at 0) and, once the LAST hold lifts,
+   * re-arms the normal idle clock if we're connected + the mic is muted (i.e.
+   * we'd otherwise be drifting toward teardown).
+   *
+   * App.tsx wraps this around in-flight async `consult_director` calls: hold
+   * on the `thinking` ack, release when the matching announce arrives (see
+   * pending-consults.ts). Ref-counted so overlapping consults compose — the
+   * peer is only released for teardown once *all* of them resolve.
+   *
+   * Idempotent edges: extra releases below 0 are clamped; a hold while already
+   * held just deepens the count. Safe to call regardless of connection state.
+   */
+  holdPeer(hold: boolean): void {
+    if (hold) {
+      this.idleHoldCount += 1;
+      // Cancel any pending teardown so a consult that started during the
+      // grace window can't lose the peer mid-think.
+      this.clearIdleTeardown();
+      return;
+    }
+    if (this.idleHoldCount === 0) return; // already released — ignore
+    this.idleHoldCount -= 1;
+    if (this.idleHoldCount > 0) return; // still held by another consult
+    // Last hold lifted — resume normal idle behaviour. Re-arm only if we'd
+    // otherwise be idling (connected, mic muted). If the mic is open or we're
+    // not connected, the existing mic/connection transitions own the clock.
+    if (this._status === 'connected' && this._micMode === 'muted') {
+      this.armIdleTeardown();
+    }
+  }
+
+  /** Current idle-teardown hold depth (test/diagnostic read). */
+  get idleHold(): number {
+    return this.idleHoldCount;
   }
 
   /**

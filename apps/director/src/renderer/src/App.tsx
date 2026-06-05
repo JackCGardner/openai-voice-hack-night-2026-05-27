@@ -4,6 +4,7 @@ import { useStore } from './state/store';
 import { ChatSurface, type ChatMessage } from './components/ChatSurface';
 import { StripSurface } from './components/StripSurface';
 import { devToolCall } from './lib/toolBridge';
+import { PendingConsults, consultTicketIdFromAnnounce } from './realtime/pending-consults';
 import type { StripStateKind } from '../../shared/state';
 // ─── § W4 P5 polish hooks (append-only — docs/contracts.md § 13.2) ──────
 // These hooks own all P5.1 + P5.3 side-effects so App.tsx stays a single
@@ -54,6 +55,20 @@ export function App(): JSX.Element {
   const [input, setInput] = useState('');
   const [micMode, setMicMode] = useState(client.micMode);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  // ─── § consult-hold (idle-teardown safety valve — demo-critical) ─────────
+  // Tracks in-flight async `consult_director` calls so we can hold the
+  // Realtime peer open while the deep brain (gpt-5.5, full shell) thinks. The
+  // 45s idle-teardown would otherwise close the peer mid-think once the user
+  // goes quiet, and the answer announce would be dropped (the bug). The
+  // tracker's hold/release edges drive `client.holdPeer()`; we add on the
+  // `thinking` ack and resolve when the matching announce lands. Stable across
+  // renders (the client is stable from useRealtimeClient).
+  const pendingConsultsRef = useRef<PendingConsults | null>(null);
+  if (pendingConsultsRef.current === null) {
+    pendingConsultsRef.current = new PendingConsults((hold) => client.holdPeer(hold));
+  }
+  const pendingConsults = pendingConsultsRef.current;
 
   // ─── § W4 P5 polish wiring (append-only) ────────────────────────────────
   // Captions stream (P5.1), Strip-as-Canvas-handle (P5.3), onboarding form
@@ -372,6 +387,27 @@ export function App(): JSX.Element {
   // IpcChannel.ToolProactiveAnnounce and are injected by the proactive-announce
   // consumer below. No window-event demo path.)
 
+  // ─── § consult-hold — register in-flight consults ───────────────────────
+  // When `consult_director` returns its `{ status:'thinking', ticketId }` ack
+  // (surfaced by client.dispatchTool), add it to the tracker. The tracker's
+  // hold edge calls client.holdPeer(true), suppressing idle-teardown until the
+  // matching announce resolves it below. Gated to the strip surface — the
+  // chat-debug window must never drive the live peer's teardown clock.
+  useEffect(() => {
+    if (surface !== 'strip') return;
+    const off = client.on('consultThinking', ({ ticketId }) => {
+      console.log('[consult-hold] thinking — holding peer for', ticketId);
+      pendingConsults.add(ticketId);
+    });
+    return () => {
+      off();
+      // Unmount / client swap: drop holds so we never pin a peer open via a
+      // tracker that's about to be orphaned. (Strip surface is long-lived, so
+      // this is belt-and-braces.)
+      pendingConsults.clear();
+    };
+  }, [client, surface, pendingConsults]);
+
   // ─── § proactive-announce (Integrate wave — spec §1.7) ──────────────────
   // Subscribe to main-pushed proactive announcements (IpcChannel.
   // ToolProactiveAnnounce, via window.director.proactive.onAnnounce). This is
@@ -390,28 +426,77 @@ export function App(): JSX.Element {
       console.warn('[proactive] bridge.proactive.onAnnounce not exposed — announcements dropped');
       return;
     }
-    const off = bridge.proactive.onAnnounce((p) => {
-      console.log('[proactive] announce', p);
-      if (client.status !== 'connected' || !client.dcReady) {
-        console.warn('[proactive] peer gone — dropping', p);
-        return;
-      }
-      // Speak it ONCE via per-response instructions. We deliberately do NOT add
-      // a persistent `conversation.item.create` (role:system "say this verbatim")
-      // — that lingers in the conversation and the model re-says it on every
-      // later turn, which feels un-interruptible. Per-response instructions
-      // affect only this one response and are never added to history, so it
-      // speaks once and the user can move the conversation on. Barge-in still
-      // cancels it normally.
+    // Speak the announce ONCE via per-response instructions. We deliberately do
+    // NOT add a persistent `conversation.item.create` (role:system "say this
+    // verbatim") — that lingers in the conversation and the model re-says it on
+    // every later turn, which feels un-interruptible. Per-response instructions
+    // affect only this one response and are never added to history, so it
+    // speaks once and the user can move the conversation on. Barge-in still
+    // cancels it normally.
+    const speakOnce = (text: string): boolean =>
       client.send({
         type: 'response.create',
         response: {
-          instructions: `Say this to the user now, conversationally and briefly, then stop — do not add anything else: ${p.text}`,
+          instructions: `Say this to the user now, conversationally and briefly, then stop — do not add anything else: ${text}`,
         },
       });
+
+    const off = bridge.proactive.onAnnounce((p) => {
+      console.log('[proactive] announce', p);
+
+      // ─── § consult-hold — release the in-flight consult ─────────────────
+      // The answer (or error) for an async consult arrived: drop its ticket so
+      // the peer hold lifts (idle-teardown resumes once no consults remain).
+      // Non-consult announces (e.g. the hang watchdog) carry no consult
+      // ticketId and resolve() no-ops on them.
+      const ticketId = consultTicketIdFromAnnounce(p);
+      if (ticketId) pendingConsults.resolve(ticketId);
+
+      // Fast path: peer is live → speak immediately.
+      if (client.status === 'connected' && client.dcReady) {
+        speakOnce(p.text);
+        return;
+      }
+
+      // ─── § announce-backstop (demo-critical) ────────────────────────────
+      // The peer was torn down (idle-teardown raced the slow brain) before the
+      // answer landed. Rather than DROP the answer, reconnect then speak it, so
+      // even a teardown race still delivers. connect() re-mints + reopens the
+      // peer (~1–2s); we then inject the one-shot speak. Best-effort: if the
+      // reconnect or send fails we log — we never throw out of the IPC callback.
+      console.warn('[proactive] peer gone — reconnecting to deliver', p);
+      void (async () => {
+        try {
+          if (client.status === 'idle' || client.status === 'closed' || client.status === 'error') {
+            await client.connect();
+            // This is an UNPROMPTED delivery — the user didn't open the mic.
+            // connect() defaults the mic to tap-open; mute it so we don't
+            // capture ambient audio and so idle-teardown re-arms after the
+            // answer plays (cost control). The user can re-open via PTT.
+            client.setMicMode('muted');
+          }
+          // Poll briefly for the data channel to open (connect resolves once the
+          // peer is connected, but the DC can lag a beat). Bounded ~5s.
+          const deadline = Date.now() + 5_000;
+          while (!(client.status === 'connected' && client.dcReady) && Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 100));
+          }
+          if (client.status === 'connected' && client.dcReady) {
+            if (!speakOnce(p.text)) {
+              console.warn('[proactive] reconnected but speak send dropped', p);
+            } else {
+              console.log('[proactive] delivered after reconnect');
+            }
+          } else {
+            console.warn('[proactive] reconnect did not reach a live DC — answer dropped', p);
+          }
+        } catch (err) {
+          console.error('[proactive] reconnect-to-deliver failed', err);
+        }
+      })();
     });
     return off;
-  }, [client, surface]);
+  }, [client, surface, pendingConsults]);
 
   // Strip auto-resize per state. Only the Strip overlay window cares about
   // resizeStrip — the Chat debug window has a normal frame and keeps its
