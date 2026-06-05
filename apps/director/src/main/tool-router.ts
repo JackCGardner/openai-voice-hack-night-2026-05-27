@@ -56,6 +56,20 @@ import type {
   AppOnboardingCompletePayload,
   AppOnboardingCompleteResponse,
 } from '../shared/ipc.js';
+// ─── § voice-async (Integrate wave — spec §1) — fire-and-forget consult ───
+import { dispatchConsult, type ConsultDelivery } from './consult-tickets.js';
+// ─── § agent-visibility (Integrate wave — spec §3.1) — list_agents ────────
+import { handleListAgents } from './agent-tools.js';
+// ─── § real-dispatch (Integrate wave — spec §3.3) — DIRECTOR_REAL_AGENTS ──
+import {
+  useRealAgents,
+  useDemoSim,
+  dispatchAgentReal,
+  resolveTargetRepo,
+} from './agent-tools.js';
+import { dispatchAgent } from './codex-pool.js';
+import { getSessionId } from './side-store.js';
+import { homedir } from 'node:os';
 
 const ASK_TIMEOUT_MS = 60_000;
 
@@ -224,6 +238,60 @@ async function handleDispatchAgentMock(
   const identity = resolveIdentity(args.agent);
   const agentId = identity.id;
 
+  // ─── § real-dispatch (Integrate wave — spec §3.3) ──────────────────────
+  // DIRECTOR_REAL_AGENTS (default OFF) swaps the handler BODY to drive the
+  // real codex-pool while keeping the same tool name on the wire. In the real
+  // branch we SKIP the synthetic addAgent patch AND the startSim block — the
+  // pool emits codex.event { agent_started } which ipcSync.handleCodexEvent
+  // maps to commands.addAgent (avoids double-adding). targetRepo is the
+  // roaming cwd / DIRECTOR_PROJECT_ROOT / $HOME (no project picker).
+  if (useRealAgents()) {
+    const res = await dispatchAgentReal(
+      {
+        agentId: identity.id,
+        name: identity.name,
+        role: identity.role,
+        task: args.task,
+        targetRepo: resolveTargetRepo(homedir()),
+      },
+      getSessionId() ?? '',
+      dispatchAgent,
+    );
+    if (!res.ok) {
+      return {
+        ok: false,
+        callId: req.callId,
+        error: res.error,
+        latencyMs: Date.now() - startedAt,
+      };
+    }
+    // Log the dispatch decision (the pool's events drive the store).
+    appendDecision({
+      at: Date.now(),
+      kind: 'agent_dispatched',
+      payload: {
+        agent_id: res.agent_id,
+        name: identity.name,
+        role: identity.role,
+        task: args.task,
+        worktree: res.worktree,
+        branch: res.branch,
+        real: true,
+      },
+    }).catch((err) => console.warn('[tool-router] decision log failed', err));
+    return {
+      ok: true,
+      callId: req.callId,
+      output: {
+        agent_id: res.agent_id,
+        worktree: res.worktree,
+        branch: res.branch,
+      },
+      latencyMs: Date.now() - startedAt,
+    };
+  }
+
+  // ─── Mock / sim branch (default — demo path unchanged) ─────────────────
   const agent = {
     id: agentId,
     name: identity.name,
@@ -251,9 +319,14 @@ async function handleDispatchAgentMock(
     payload: { agent_id: agentId, name: identity.name, role: identity.role, task: args.task },
   }).catch((err) => console.warn('[tool-router] decision log failed', err));
 
-  // First dispatch kicks the sim in canonical mode. The sim runs trail
-  // updates, the T+1:45 Jin block, and the staggered completions.
-  if (!ctx.simKicked) {
+  // ─── § demo-gating (Integrate wave — spec §4 item 3) ───────────────────
+  // Historically the FIRST dispatch_agent_mock auto-kicked the Mixtape sim
+  // (trail updates, the T+1:45 Jin block, staggered completions) in ANY
+  // session — an implicit demo leak. Now gated behind DIRECTOR_DEMO_SIM
+  // (default OFF). The explicit demo triggers (dev hotkeys, ChatSurface
+  // button) call startMixtapeDemo directly in the renderer and do NOT depend
+  // on this — so OFF removes the leak while keeping the demo invokable.
+  if (useDemoSim() && !ctx.simKicked) {
     ctx.simKicked = true;
     sendStripPatch('strip', {
       action: 'startSim',
@@ -315,6 +388,33 @@ async function handleAskUser(
   };
 }
 
+// ─── § voice-async (Integrate wave — spec §1) ────────────────────────────
+// The deliver sink for async consults. Mirrors planner.ts announceAgentHang
+// exactly: send IpcChannel.ToolProactiveAnnounce to the strip window so the
+// foreground (App.tsx proactive.onAnnounce injector) speaks the attributed
+// line. `reason` MUST be 'agent_done' (existing enum — no payload change). The
+// metadata.kind discriminates result vs error so a future consumer can style
+// them. `d.text` is already fully formed ("On <restated>: <summary>" /
+// "Couldn't get to the bottom of <restated>.") — do not re-wrap.
+function sendConsultAnnounce(w: BrowserWindow | null, d: ConsultDelivery): void {
+  if (!w || w.isDestroyed()) {
+    console.warn('[tool-router] consult announce dropped — no strip window', d);
+    return;
+  }
+  try {
+    w.webContents.send(IpcChannel.ToolProactiveAnnounce, {
+      text: d.text,
+      reason: 'agent_done',
+      metadata: {
+        kind: d.outcome === 'result' ? 'consult_result' : 'consult_error',
+        ticketId: d.ticketId,
+      },
+    });
+  } catch (err) {
+    console.warn('[tool-router] consult announce send threw', err);
+  }
+}
+
 async function handleConsultDirector(
   req: ToolCallRequest,
   args: ConsultArgs,
@@ -328,23 +428,24 @@ async function handleConsultDirector(
       latencyMs: Date.now() - startedAt,
     };
   }
-  try {
-    const result = await consultDirector(args, ctx.stripWindow);
-    return {
-      ok: true,
-      callId: req.callId,
-      output: result,
-      latencyMs: Date.now() - startedAt,
-    };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      ok: false,
-      callId: req.callId,
-      error: message,
-      latencyMs: Date.now() - startedAt,
-    };
-  }
+  // Fire-and-forget (spec §1.2): mint a ticket, kick the Brain WITHOUT
+  // awaiting, and return { status:'thinking', ticketId, restated } in <50ms.
+  // The runner reuses consultDirector (preserves the DIRECTOR_LEGACY_PLANNER
+  // fallback + orchestrator.jsonl chaining inside runAgentBrain's caller). Do
+  // NOT wrap dispatchConsult in try/catch — runTicket already routes runner
+  // rejections to the error deliver, and closeTicket happens in runTicket's
+  // finally (not the router).
+  const { ticketId, restated } = dispatchConsult(
+    args.prompt,
+    (prompt) => consultDirector({ ...args, prompt }, ctx.stripWindow),
+    (d) => sendConsultAnnounce(ctx.stripWindow, d),
+  );
+  return {
+    ok: true,
+    callId: req.callId,
+    output: { status: 'thinking', ticketId, restated },
+    latencyMs: Date.now() - startedAt,
+  };
 }
 
 async function handleUpdateHarness(
@@ -420,6 +521,11 @@ export async function routeToolCall(req: ToolCallRequest): Promise<ToolCallRespo
         return await handleKillAgent(req, args as unknown as KillAgentArgs);
       case 'extend_agent':
         return await handleExtendAgent(req, args as unknown as ExtendAgentArgs);
+      // ─── § agent-visibility (Integrate wave — spec §3.1) ────────────────
+      // handleListAgents already returns a full ToolCallResponse — pass req
+      // straight through. Reads the side-store world view (synchronous-ish).
+      case 'list_agents':
+        return await handleListAgents(req);
       default:
         console.warn('[tool-router] unknown tool', req.name);
         return {

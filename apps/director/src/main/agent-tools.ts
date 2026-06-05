@@ -103,6 +103,24 @@ export function useRealAgents(): boolean {
   return raw === '1' || raw === 'true';
 }
 
+/**
+ * Flag (spec §4 item 3): `DIRECTOR_DEMO_SIM`. **Default OFF.** Gates whether
+ * `dispatch_agent_mock` itself auto-kicks the Mixtape sim timeline on the
+ * first dispatch. Historically the router fired the `startSim` patch on every
+ * first `dispatch_agent_mock` in ANY session — an implicit demo leak (a real
+ * question that dispatched an agent would start the Tokyo-neon timeline).
+ *
+ * The explicit demo triggers (dev `⌃⌥⌘`/`d` hotkeys, the ChatSurface "Start
+ * Mixtape Demo" button) drive `startMixtapeDemo` DIRECTLY in the renderer —
+ * they do NOT depend on this flag. So default-OFF removes the implicit leak
+ * while keeping the demo fully invokable. Set `DIRECTOR_DEMO_SIM=1` only if you
+ * want a bare `dispatch_agent_mock` call to also start the timeline.
+ */
+export function useDemoSim(): boolean {
+  const raw = process.env.DIRECTOR_DEMO_SIM;
+  return raw === '1' || raw === 'true';
+}
+
 export interface RealDispatchArgs {
   /** Canonical agent id (already resolved by the router's `resolveIdentity`). */
   agentId: string;

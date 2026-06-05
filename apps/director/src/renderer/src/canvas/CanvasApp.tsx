@@ -39,6 +39,15 @@ import {
   type RotationFailedProps,
 } from './components/RotationFailed';
 import { CanvasError } from './components/CanvasError';
+// ─── § genui-integrate (Integrate wave — spec §2.1–2.5) ──────────────────
+// New GenUI components wired into the CanvasBody switch below. Names match
+// the render_canvas 'component' enum (shared/realtime.ts). options_picker is
+// interactive (→ onRespond({ option_id })); the rest are display-only.
+import { OptionsPicker, type OptionsPickerProps } from './components/OptionsPicker';
+import { HtmlView, type HtmlViewProps } from './components/HtmlView';
+import { CodePreview, type CodePreviewProps } from './components/CodePreview';
+import { DiagramView, type DiagramViewProps } from './components/DiagramView';
+import { AgentPod, type AgentPodProps } from './components/AgentPod';
 
 type IpcRendererLike = {
   on: (channel: string, listener: (...args: unknown[]) => void) => void;
@@ -238,6 +247,31 @@ function CanvasBody({
           onSubmit={(values) => onRespond({ values })}
         />
       );
+    // ─── § genui-integrate (Integrate wave — spec §2.1–2.5) ──────────────
+    case 'options_picker':
+      // Interactive. The FIXED value key is `option_id` (singular) to match
+      // ipcSync.ts handleResumePickerResponse (§2.1). sessionId, when present,
+      // is carried on payload.props for the strip to correlate.
+      return (
+        <OptionsPicker
+          {...(payload.props as unknown as OptionsPickerProps)}
+          onSelect={(id) => onRespond({ option_id: id })}
+        />
+      );
+    case 'html':
+      // Display-only — sandboxed iframe, no onRespond.
+      return <HtmlView {...(payload.props as unknown as HtmlViewProps)} />;
+    case 'code_preview':
+      // Display-only — read-only highlighted code card, no onRespond.
+      return <CodePreview {...(payload.props as unknown as CodePreviewProps)} />;
+    case 'diagram':
+      // Display-only — the canvas component name is 'diagram'; the component
+      // is DiagramView. No onRespond.
+      return <DiagramView {...(payload.props as unknown as DiagramViewProps)} />;
+    case 'agent_pod':
+      // Display-only — live Hive in the Canvas, driven by the ipcSync relay
+      // (spec §3.2). No onRespond.
+      return <AgentPod {...(payload.props as unknown as AgentPodProps)} />;
     case 'canvas_error':
       // A `canvas_error` payload arriving from main is rare (the boundary
       // catches local render throws), but support it so an upstream caller

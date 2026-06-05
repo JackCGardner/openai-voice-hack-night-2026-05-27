@@ -29,6 +29,8 @@ export type CanvasKnownComponent =
   | 'agent_pod'
   | 'artifact_preview'
   | 'html_escape'
+  // ─── § genui-integrate — 'html' is the render_canvas enum value (spec §2.2).
+  | 'html'
   | 'harness_flash'
   | 'harness_rule_save';
 

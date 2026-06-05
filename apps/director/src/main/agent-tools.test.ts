@@ -34,6 +34,7 @@ import {
   listAgentsToolDef,
   resolveTargetRepo,
   useRealAgents,
+  useDemoSim,
   type DispatchAgentDriver,
 } from './agent-tools.js';
 
@@ -127,6 +128,28 @@ describe('useRealAgents', () => {
     expect(useRealAgents()).toBe(false);
     process.env.DIRECTOR_REAL_AGENTS = 'yes';
     expect(useRealAgents()).toBe(false);
+  });
+});
+
+describe('useDemoSim (spec §4 item 3 — implicit-sim-leak gate)', () => {
+  const orig = process.env.DIRECTOR_DEMO_SIM;
+  afterEach(() => {
+    if (orig === undefined) delete process.env.DIRECTOR_DEMO_SIM;
+    else process.env.DIRECTOR_DEMO_SIM = orig;
+  });
+
+  it('defaults OFF when unset (no auto-sim on dispatch_agent_mock)', () => {
+    delete process.env.DIRECTOR_DEMO_SIM;
+    expect(useDemoSim()).toBe(false);
+  });
+
+  it('is ON only for "1" and "true"', () => {
+    process.env.DIRECTOR_DEMO_SIM = '1';
+    expect(useDemoSim()).toBe(true);
+    process.env.DIRECTOR_DEMO_SIM = 'true';
+    expect(useDemoSim()).toBe(true);
+    process.env.DIRECTOR_DEMO_SIM = '0';
+    expect(useDemoSim()).toBe(false);
   });
 });
 

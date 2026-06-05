@@ -25,6 +25,7 @@ import {
   type StateSnapshotPushPayload,
   type StripCanvasRenderPayload,
   type CanvasUserResponseRelayPayload,
+  type CanvasRenderBroadcastPayload,
   type AppOnboardingCompletePayload,
   type AppOnboardingCompleteResponse,
   type AppNotifyDegradedPayload,
@@ -33,6 +34,7 @@ import {
   type SessionResumePayload,
   type SessionResumeResponse,
   type PttSignalPayload,
+  type ProactiveAnnouncePayload,
 } from '../shared/ipc.js';
 import type { CodexEvent } from '../shared/codex.js';
 import type {
@@ -197,6 +199,18 @@ const api: DirectorBridge = {
           listener,
         );
     },
+    // ─── § agent-pod-live (Integrate wave — spec §3.2) ────────────────────
+    // Observe canvas.render broadcasts (main → all windows). Strip uses this
+    // to track which component the Canvas shows (start/stop agent_pod relay).
+    onRender(cb) {
+      const listener = (
+        _evt: unknown,
+        payload: CanvasRenderBroadcastPayload,
+      ): void => cb(payload);
+      ipcRenderer.on(IpcChannel.CanvasRender, listener);
+      return () =>
+        ipcRenderer.removeListener(IpcChannel.CanvasRender, listener);
+    },
   },
   app: {
     onboardingComplete(
@@ -230,6 +244,18 @@ const api: DirectorBridge = {
       ipcRenderer.on(IpcChannel.RealtimeMintError, listener);
       return () =>
         ipcRenderer.removeListener(IpcChannel.RealtimeMintError, listener);
+    },
+  },
+  // ─── § proactive-announce (Integrate wave — spec §1.7) ──────────────────
+  // Mirror of `tool.onResult`: subscribe to IpcChannel.ToolProactiveAnnounce.
+  // Lights up BOTH the async consult result AND the existing hang watchdog
+  // (planner.ts announceAgentHang) — both were dead with no renderer consumer.
+  proactive: {
+    onAnnounce(cb) {
+      const listener = (_evt: unknown, p: ProactiveAnnouncePayload): void => cb(p);
+      ipcRenderer.on(IpcChannel.ToolProactiveAnnounce, listener);
+      return () =>
+        ipcRenderer.removeListener(IpcChannel.ToolProactiveAnnounce, listener);
     },
   },
 };

@@ -6,9 +6,10 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { handleCodexEvent } from './ipcSync.js';
-import { useStore } from './store.js';
+import { handleCodexEvent, buildAgentPodProps } from './ipcSync.js';
+import { commands, useStore } from './store.js';
 import type { CodexEvent, CodexEventType } from '../../../shared/codex.js';
+import type { Agent } from '../../../shared/state.js';
 
 const MAYA = 'maya';
 
@@ -224,5 +225,75 @@ describe('handleCodexEvent', () => {
     const agent = useStore.getState().agents[MAYA];
     expect(agent?.status).toBe('error');
     expect(agent?.blocker).toBe('aborted');
+  });
+});
+
+// ─── § agent-pod-live (Integrate wave — spec §3.2) ────────────────────────
+
+function makeAgent(over: Partial<Agent> & { id: string }): Agent {
+  return {
+    id: over.id,
+    name: over.name ?? over.id,
+    role: over.role ?? 'Frontend',
+    accentColor: over.accentColor ?? '#E07856',
+    status: over.status ?? 'working',
+    currentTask: over.currentTask ?? null,
+    taskTrail: over.taskTrail ?? [],
+    recentFiles: over.recentFiles ?? [],
+    blocker: over.blocker ?? null,
+    worktreePath: over.worktreePath ?? null,
+    codexThreadId: over.codexThreadId ?? null,
+    dispatchedAt: over.dispatchedAt ?? Date.now(),
+    finishedAt: over.finishedAt ?? null,
+  };
+}
+
+describe('buildAgentPodProps', () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  it('maps the store `taskTrail` field onto the prop `trail` (the FIXED §3.2 mapping)', () => {
+    commands.addAgent(
+      makeAgent({
+        id: 'maya',
+        name: 'Maya',
+        role: 'Frontend',
+        status: 'working',
+        currentTask: 'wiring the card',
+        taskTrail: ['picked layout', 'wiring the card'],
+        recentFiles: ['Card.tsx'],
+      }),
+    );
+
+    const { agents } = buildAgentPodProps();
+    expect(agents).toHaveLength(1);
+    const a = agents[0]!;
+    // trail carries taskTrail; the store field name is NOT leaked.
+    expect(a.trail).toEqual(['picked layout', 'wiring the card']);
+    expect('taskTrail' in a).toBe(false);
+    // All other fields pass straight through 1:1.
+    expect(a.id).toBe('maya');
+    expect(a.name).toBe('Maya');
+    expect(a.role).toBe('Frontend');
+    expect(a.accentColor).toBe('#E07856');
+    expect(a.status).toBe('working');
+    expect(a.currentTask).toBe('wiring the card');
+    expect(a.recentFiles).toEqual(['Card.tsx']);
+  });
+
+  it('orders agents like the Hive (blocked → working → done) then by dispatchedAt', () => {
+    commands.addAgent(makeAgent({ id: 'a', status: 'done', dispatchedAt: 1 }));
+    commands.addAgent(makeAgent({ id: 'b', status: 'working', dispatchedAt: 3 }));
+    commands.addAgent(makeAgent({ id: 'c', status: 'blocked', dispatchedAt: 2 }));
+    commands.addAgent(makeAgent({ id: 'd', status: 'working', dispatchedAt: 1 }));
+
+    const ids = buildAgentPodProps().agents.map((a) => a.id);
+    // blocked first, then working (oldest dispatchedAt first), then done.
+    expect(ids).toEqual(['c', 'd', 'b', 'a']);
+  });
+
+  it('returns an empty list when no agents exist (never throws)', () => {
+    expect(buildAgentPodProps()).toEqual({ agents: [] });
   });
 });

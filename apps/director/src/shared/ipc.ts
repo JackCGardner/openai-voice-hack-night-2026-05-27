@@ -256,7 +256,11 @@ export type ToolName =
   // Hang-resolution tools the user's voice answer routes to after the
   // watchdog escalates. Handled in main/tool-router.ts § kill-extend.
   | 'kill_agent'
-  | 'extend_agent';
+  | 'extend_agent'
+  // ─── § agent-visibility (Integrate wave — spec §3.1) ───────────────────
+  // Synchronous "what's running?" tool. Handled in main/agent-tools.ts
+  // handleListAgents, dispatched from tool-router.ts routeToolCall switch.
+  | 'list_agents';
 
 export interface ToolCallRequest {
   callId: string;
@@ -578,6 +582,13 @@ export interface DirectorBridge {
     onUserResponse: (
       cb: (payload: CanvasUserResponseRelayPayload) => void,
     ) => () => void;
+    // ─── § agent-pod-live (Integrate wave — spec §3.2) ────────────────────
+    // Observe canvas.render broadcasts (main → all windows, including the
+    // strip). Lets the strip renderer know WHICH component the Canvas is
+    // currently showing — the signal ipcSync uses to start/stop the live
+    // agent_pod re-relay. Mirrors the main-bus broadcast in tool-router's
+    // handleRenderCanvas. Read-only observe; does not drive the Canvas.
+    onRender: (cb: (payload: CanvasRenderBroadcastPayload) => void) => () => void;
   };
   /** App-level main-process effects driven by the strip renderer. */
   app: {
@@ -596,6 +607,15 @@ export interface DirectorBridge {
   /** gap 11 — observe token-mint failures (HTTP 401 → api_key_missing). */
   realtimeErrors: {
     onMintError: (cb: (payload: RealtimeMintErrorPayload) => void) => () => void;
+  };
+  // ─── § proactive-announce (Integrate wave — spec §1.7) ──────────────────
+  // Subscribe to unprompted speech announcements pushed by main over
+  // IpcChannel.ToolProactiveAnnounce. This single subscription lights up BOTH
+  // the async consult_director result (§1.4) AND the existing-but-dead hang
+  // watchdog (planner.ts announceAgentHang). App.tsx injects p.text as
+  // unprompted assistant speech via the escalation pattern.
+  proactive: {
+    onAnnounce: (cb: (p: ProactiveAnnouncePayload) => void) => () => void;
   };
 }
 

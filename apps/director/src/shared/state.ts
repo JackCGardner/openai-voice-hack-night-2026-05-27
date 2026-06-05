@@ -113,6 +113,10 @@ export type CanvasComponentName =
   | 'agent_pod'
   | 'artifact_preview'
   | 'html_escape'
+  // ─── § genui-integrate — 'html' is the render_canvas enum value (spec §2.2);
+  // 'html_escape' was the earlier sketch name. Not a gate (CanvasApp's switch
+  // is), but listed for parity with shared/realtime.ts.
+  | 'html'
   | 'harness_flash';
 
 export interface CanvasComponentProps {

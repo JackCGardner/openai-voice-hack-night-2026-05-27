@@ -432,6 +432,47 @@ export function App(): JSX.Element {
     return () => window.removeEventListener('director:escalation', onEscalation);
   }, [client]);
 
+  // ─── § proactive-announce (Integrate wave — spec §1.7) ──────────────────
+  // Subscribe to main-pushed proactive announcements (IpcChannel.
+  // ToolProactiveAnnounce, via window.director.proactive.onAnnounce). This is
+  // the foreground consumer the spec flagged as the missing GAP: it lights up
+  // BOTH the async consult_director result ("On <topic>: …") AND the existing
+  // hang watchdog ("Maya seems stuck…"). We inject p.text as unprompted
+  // assistant speech using the proven escalation injector pattern above.
+  //
+  // p.text is already fully formed by the engine (the "On <topic>: " prefix is
+  // applied in consult-tickets.ts) — we do NOT re-wrap it. v1: if the peer was
+  // torn down (idle-teardown) we log + drop; the user can re-ask.
+  useEffect(() => {
+    const bridge = window.director;
+    if (!bridge?.proactive?.onAnnounce) {
+      console.warn('[proactive] bridge.proactive.onAnnounce not exposed — announcements dropped');
+      return;
+    }
+    const off = bridge.proactive.onAnnounce((p) => {
+      console.log('[proactive] announce', p);
+      if (client.status !== 'connected' || !client.dcReady) {
+        console.warn('[proactive] peer gone — dropping', p);
+        return;
+      }
+      client.send({
+        type: 'conversation.item.create',
+        item: {
+          type: 'message',
+          role: 'system',
+          content: [
+            {
+              type: 'input_text',
+              text: `Say this to the user, verbatim and terse, then stop: "${p.text}"`,
+            },
+          ],
+        },
+      });
+      client.send({ type: 'response.create' });
+    });
+    return off;
+  }, [client]);
+
   // Strip auto-resize per state. Only the Strip overlay window cares about
   // resizeStrip — the Chat debug window has a normal frame and keeps its
   // fixed size. Dims live in STRIP_DIMS per Pass 2 of docs/ux-design.md.

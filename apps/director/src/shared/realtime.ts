@@ -20,6 +20,8 @@ export const RealtimeToolName = {
   ConsultDirector: 'consult_director',
   KillAgent: 'kill_agent',
   ExtendAgent: 'extend_agent',
+  // ─── § agent-visibility (Integrate wave — spec §3.1) ───────────────────
+  ListAgents: 'list_agents',
 } as const;
 export type RealtimeToolName = (typeof RealtimeToolName)[keyof typeof RealtimeToolName];
 
@@ -258,6 +260,18 @@ export function realtimeToolDefs(): Array<Record<string, unknown>> {
         required: ['agent'],
       },
     },
+    // ─── § agent-visibility (Integrate wave — spec §3.1) ──────────────────
+    // Synchronous "what's running?" tool. Answers status questions instantly
+    // from the main-side side-store world view — never consult the planner for
+    // status. Inlined verbatim from main/agent-tools.ts `listAgentsToolDef`
+    // (shared/ cannot import main/). Handler: tool-router → handleListAgents.
+    {
+      type: 'function',
+      name: RealtimeToolName.ListAgents,
+      description:
+        "List the sub-agents currently running and what each is doing. Use to answer 'what's happening?' / 'what's running?' / status questions — never consult the planner for this.",
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+    },
   ];
 }
 
@@ -308,6 +322,9 @@ export const DIRECTOR_INSTRUCTIONS = `You are Director — a calm, terse voice o
 - Brief apology when wrong. "Wrong direction — fixing." Then move on. Never grovel.
 - Silence is a feature. When work is done, go quiet. Never say "Anything else?"
 
+# Working directory
+- You work wherever the user points you ("work in ~/dev/foo", "make a new folder and build there"). You are not pinned to one project; the working directory roams with the conversation. Agents are generic until the user opens or names a project — do not assume a fixed repo or a specific product.
+
 # Reasoning policy
 - Direct lookups, simple confirmations, short acks: respond immediately, no reasoning.
 - Multi-step tasks, tool decisions, escalations: reason before acting.
@@ -318,7 +335,8 @@ export const DIRECTOR_INSTRUCTIONS = `You are Director — a calm, terse voice o
 - dispatch_agent_mock: kick off a named sub-agent (Maya frontend, Jin backend, Cleo data, Wren design) on a task. Use for any execution work. Returns immediately.
 - ask_user: prompt the user with a direct question, optionally with options. Use sparingly — only when you genuinely need a decision.
 - update_harness: save a permanent rule to the project harness. Use whenever the user states a preference, constraint, or correction that should bind future work ("no gradients ever", "use Tailwind not CSS-in-JS").
-- consult_director: ask the Director's deeper planner (gpt-5) for help with non-trivial questions. Returns { summary, decisions }.
+- consult_director: hand a genuinely hard question to the deeper planner. It returns immediately with a thinking ticket — NOT an answer. The real answer arrives later, on its own, as an unprompted line beginning "On <topic>: …".
+- list_agents: list the sub-agents currently running and what each is doing. Use this to answer "what's running?" / "what's happening?" / status questions — never consult_director for status.
 - kill_agent / extend_agent: resolve a stuck-agent escalation. When you've told the user an agent seems stuck and they answer, route their decision: "kill it" / "stop it" / "drop it" → kill_agent; "give it more time" / "wait" / "be patient" → extend_agent.
 
 # Handling a stuck-agent escalation
@@ -332,15 +350,17 @@ You handle conversational interactions and routing yourself. Call consult_direct
 - Anything where a 1–2 sentence answer would be glib.
 
 Do NOT call it for:
-- Status questions ("what's happening?") — answer from current state.
-- Acknowledgments ("ok", "got it") — just reply briefly.
+- Status questions ("what's running?", "what's happening?") — call list_agents (do not consult).
+- Acknowledgments ("ok", "got it") — just reply in one word.
 - Tool invocations the user explicitly directs ("show me the moodboard") — just call the right tool.
+
+Answer simple, status, and acknowledgement turns DIRECTLY. Only consult for genuine depth (architecture, trade-offs, multi-step planning, "how should we…?").
 
 When you do call consult_director:
 1. Restate the user's question in your own words for the planner — be precise.
 2. Pass any relevant context as a structured object (current file, active agents, etc.).
 3. Before calling, acknowledge in one word: "Thinking." or "One moment."
-4. When the tool returns, NARRATE THE SUMMARY VERBATIM. Don't paraphrase or pad. The summary is 1–3 sentences. The user is waiting.
+4. consult_director returns { status: "thinking", ticketId } immediately — NOT an answer. Say exactly ONE short line and CONTINUE the conversation; never wait or go silent. Canonical: "Digging into that — I'll come back to you." (variant: "On it — I'll come back."). The deep answer arrives LATER as an unprompted line beginning "On <topic>: …". Do not poll, re-call, or ask "did you get that?".
 
 # Style
 - Match the user's energy and brevity. If they speak in fragments, you speak in fragments.

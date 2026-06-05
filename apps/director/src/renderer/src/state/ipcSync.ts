@@ -26,7 +26,7 @@ import type {
   StatePatchPayload,
 } from '../../../shared/ipc.js';
 import type { CodexEvent } from '../../../shared/codex.js';
-import { startMixtapeDemo, resolveJinBlocker } from './sim.js';
+import { startMixtapeDemo, resolveJinBlocker, isDemoRunning } from './sim.js';
 
 // ─── Patch action shapes (mirror tool-router) ────────────────────────────
 
@@ -575,6 +575,9 @@ export function initIpcSync(): void {
 
   // § persistence-wiring (gap 5)
   initSnapshotPush();
+
+  // § agent-pod-live (Integrate wave — spec §3.2)
+  initAgentPodRelay();
 }
 
 // ─── § persistence-wiring (gap 5) ─────────────────────────────────────────
@@ -617,6 +620,169 @@ function initSnapshotPush(): void {
   unsubscribers.push(unsub);
 }
 
+// ─── § agent-pod-live (Integrate wave — spec §3.2) ────────────────────────
+// agent_pod is a display-only Canvas component driven LIVE from the renderer
+// store. When the Canvas currently shows `agent_pod`, re-relay a fresh
+// `canvas.render('agent_pod', { agents })` on every agents-slice change so the
+// pod re-renders on each tick. Codex events already flow
+// `codex.event → handleCodexEvent → commands.updateAgent`, so this subscriber
+// captures real agent progress for free (and the mock/sim agents in demo).
+//
+// The agents prop must match AgentPodProps.agents (spec §2.5) 1:1 EXCEPT the
+// store's `taskTrail` maps to the prop's `trail`. All other fields
+// (id/name/role/accentColor/status/currentTask/recentFiles) are identical.
+//
+// Ordering mirrors selectors.ts useAgentsOrderedForHive (HIVE_RANK) — a
+// non-hook replica so we can read it from useStore.getState() in a subscriber.
+// Re-relay is debounced ~120ms to coalesce update bursts.
+
+const AGENT_POD_COMPONENT = 'agent_pod';
+const AGENT_POD_RELAY_DEBOUNCE_MS = 120;
+
+/** Mirrors selectors.ts HIVE_RANK so the pod orders like the Hive strip. */
+const HIVE_RANK: Record<string, number> = {
+  blocked: 0,
+  working: 1,
+  thinking: 2,
+  spawning: 3,
+  done: 4,
+  error: 5,
+  killed: 6,
+};
+
+/**
+ * Build the `agent_pod` props from the current store: hive-ordered agents with
+ * `taskTrail` mapped to `trail`. Pure over `useStore.getState()`; exported for
+ * unit tests.
+ */
+export function buildAgentPodProps(): { agents: Array<Record<string, unknown>> } {
+  const state = useStore.getState();
+  const ordered = state.agentOrder
+    .map((id) => state.agents[id])
+    .filter((a): a is CanonicalAgent => Boolean(a))
+    .sort((a, b) => {
+      const r = (HIVE_RANK[a.status] ?? 99) - (HIVE_RANK[b.status] ?? 99);
+      if (r !== 0) return r;
+      return a.dispatchedAt - b.dispatchedAt;
+    });
+  const agents = ordered.map((a) => ({
+    id: a.id,
+    name: a.name,
+    role: a.role,
+    accentColor: a.accentColor,
+    status: a.status,
+    currentTask: a.currentTask,
+    recentFiles: a.recentFiles,
+    // FIXED mapping (spec §3.2): store `taskTrail` → prop `trail`.
+    trail: a.taskTrail,
+  }));
+  return { agents };
+}
+
+// Whether the Canvas window is currently showing the agent_pod. Driven by the
+// canvas.render broadcast observer (initAgentPodRelay) — set true when an
+// agent_pod render is observed (from the model's render_canvas OR our own
+// relay), false when any OTHER component renders. NOT read from the store,
+// because model-driven render_canvas calls go main→Canvas directly and never
+// touch the strip store (only commands.openCanvas does — resume picker path).
+let agentPodActive = false;
+
+/** True when the Canvas window is currently showing the agent_pod. */
+function canvasShowsAgentPod(): boolean {
+  return agentPodActive;
+}
+
+let agentPodRelayTimer: ReturnType<typeof setTimeout> | null = null;
+/** Snapshot of the last agents signature relayed, to skip no-op pushes. */
+let lastAgentPodSig = '';
+
+function relayAgentPodNow(): void {
+  const bridge = window.director;
+  if (!bridge?.canvas?.render) return;
+  if (!canvasShowsAgentPod()) return;
+  const props = buildAgentPodProps();
+  try {
+    bridge.canvas.render({
+      component: AGENT_POD_COMPONENT,
+      props,
+      component_id: AGENT_POD_COMPONENT,
+    });
+  } catch (err) {
+    console.warn('[ipcSync] agent_pod relay failed', err);
+  }
+}
+
+/**
+ * Debounced re-relay. Cheap signature check first: if neither the agents slice
+ * nor whether the pod is showing has changed, skip entirely (the snapshot-push
+ * subscriber fires on EVERY store mutation, so we must filter aggressively).
+ */
+function scheduleAgentPodRelay(): void {
+  if (!canvasShowsAgentPod()) return;
+  // Signature over the agents slice (+ order) so unrelated mutations (canvas
+  // phase, transcript, mic) don't trigger a relay.
+  const state = useStore.getState();
+  const sig = state.agentOrder
+    .map((id) => {
+      const a = state.agents[id];
+      if (!a) return id;
+      return `${id}:${a.status}:${a.currentTask ?? ''}:${a.recentFiles.join(',')}:${a.taskTrail.length}`;
+    })
+    .join('|');
+  if (sig === lastAgentPodSig) return;
+  lastAgentPodSig = sig;
+  if (agentPodRelayTimer) clearTimeout(agentPodRelayTimer);
+  agentPodRelayTimer = setTimeout(() => {
+    agentPodRelayTimer = null;
+    relayAgentPodNow();
+  }, AGENT_POD_RELAY_DEBOUNCE_MS);
+}
+
+function initAgentPodRelay(): void {
+  const bridge = window.director;
+  if (!bridge?.canvas?.render) {
+    console.warn(
+      '[ipcSync] bridge.canvas.render not exposed — agent_pod live relay disabled',
+    );
+    return;
+  }
+
+  // Track which component the Canvas shows via the canvas.render broadcast
+  // (main → all windows). When an agent_pod opens (model render_canvas OR our
+  // own relay), mark it active and immediately relay fresh live data so the
+  // model's possibly-stale `agents` prop is replaced by the live store. Any
+  // other component render closes the pod (stops the live relay).
+  if (bridge.canvas.onRender) {
+    const offRender = bridge.canvas.onRender((payload) => {
+      const wasActive = agentPodActive;
+      agentPodActive = payload?.component === AGENT_POD_COMPONENT;
+      if (agentPodActive && !wasActive) {
+        // Freshly opened — push live store data now (don't wait for a tick).
+        lastAgentPodSig = '';
+        relayAgentPodNow();
+      }
+    });
+    unsubscribers.push(offRender);
+  } else {
+    console.warn(
+      '[ipcSync] bridge.canvas.onRender not exposed — agent_pod live relay will not auto-activate',
+    );
+  }
+
+  // Subscribe to every store change; the signature check + debounce keep this
+  // cheap. zustand calls the listener after each `set`.
+  const unsub = useStore.subscribe(scheduleAgentPodRelay);
+  unsubscribers.push(unsub);
+  unsubscribers.push(() => {
+    if (agentPodRelayTimer) {
+      clearTimeout(agentPodRelayTimer);
+      agentPodRelayTimer = null;
+    }
+    lastAgentPodSig = '';
+    agentPodActive = false;
+  });
+}
+
 export function teardownIpcSync(): void {
   unsubscribers.forEach((off) => off());
   unsubscribers.length = 0;
@@ -630,8 +796,16 @@ export function teardownIpcSync(): void {
 export function answerAsk(askId: string, answer: string): void {
   const bridge = window.director;
   bridge?.ask?.answer({ ask_id: askId, answer });
-  // The Mixtape demo's single ask is Jin's blocker — keep the sim aligned.
-  resolveJinBlocker(answer);
+  // ─── § demo-gating (Integrate wave — spec §4 item 5) ───────────────────
+  // The Mixtape demo's single ask is Jin's Stripe blocker — keep the sim's
+  // awaitingResolution flag aligned ONLY when the sim is actually running.
+  // In production, ask_user answers route only to the pending-ask resolver
+  // (the bridge.ask.answer above), never to the sim. resolveJinBlocker is
+  // already a no-op when `!active`, but gating on isDemoRunning() makes the
+  // production/non-leak contract explicit.
+  if (isDemoRunning()) {
+    resolveJinBlocker(answer);
+  }
 }
 
 /** Used in tests + dev tools. */
