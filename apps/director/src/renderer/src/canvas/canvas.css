@@ -214,6 +214,54 @@
   box-shadow: 0 0 18px rgba(88, 214, 141, 0.45);
 }
 
+/* APPEND (voice-genui-spec §10 image-gen moodboard): per-tile no-image
+ * fallback, palette swatch row, and the zero-concepts empty state. */
+.moodboard-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.moodboard-tile-image--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(40, 40, 44, 0.55),
+    rgba(40, 40, 44, 0.55) 10px,
+    rgba(48, 48, 52, 0.55) 10px,
+    rgba(48, 48, 52, 0.55) 20px
+  );
+}
+
+.moodboard-tile-image-placeholder {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.moodboard-tile-palette {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.moodboard-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 0.5px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
 /* ─── ArtifactPreview (Mixtape card) ──────────────────────────────────── */
 
 .artifact {

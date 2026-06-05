@@ -23,12 +23,15 @@
  */
 
 import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { resolve, join } from 'node:path';
 import { homedir } from 'node:os';
+import { pathToFileURL } from 'node:url';
 import {
   Agent,
   run,
   shellTool,
+  imageGenerationTool,
   setDefaultOpenAIKey,
   MCPServerStdio,
   type Shell,
@@ -72,6 +75,53 @@ const CATASTROPHIC = [
 
 function isCatastrophic(command: string): boolean {
   return CATASTROPHIC.some((re) => re.test(command));
+}
+
+// ─── Generated-image persistence (image-gen moodboard, spec §10) ─────────
+// `imageGenerationTool` is a HOSTED tool: the bytes come back as base64 on the
+// run result, NOT as a URL the Canvas can fetch. The contract is generate →
+// persist → pass a `file://` path to the moodboard (the Canvas never receives
+// raw tool output). This helper is the reliable write path so the Brain doesn't
+// have to base64-pipe through the shell (quoting-fragile). It writes under
+// homedir() — the same trust zone the shell already roams.
+const GENERATED_DIR = join(homedir(), '.director', 'generated');
+
+function slugify(s: string): string {
+  return (
+    (s || 'concept')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '')
+      .slice(0, 40) || 'concept'
+  );
+}
+
+/**
+ * Persist one generated image to `~/.director/generated/<ts>-<slug>.<ext>` and
+ * return BOTH the absolute path and a `file://` URL (the form the moodboard's
+ * `image_url` accepts). `data` is the raw base64 string the hosted
+ * image-generation tool returns (a bare base64 body, or a full
+ * `data:image/...;base64,…` data-URL — both are accepted). Throws nothing the
+ * caller can't see; the Brain references the returned `fileUrl` in a
+ * `render_canvas('moodboard', …)` concept.
+ *
+ * Exported so the wiring is unit-testable headlessly and so a future
+ * result-parser can call it directly.
+ */
+export function saveGeneratedImage(
+  data: string,
+  opts?: { label?: string; ext?: 'png' | 'webp' | 'jpeg' },
+): { path: string; fileUrl: string } {
+  // Tolerate a full data-URL: strip the `data:<mime>;base64,` prefix.
+  const m = /^data:(image\/[a-z+]+);base64,(.*)$/i.exec(data.trim());
+  const base64 = m ? m[2]! : data.trim();
+  const ext =
+    opts?.ext ?? (m ? (m[1]!.split('/')[1] ?? 'png').replace('jpeg', 'jpeg') : 'png');
+  mkdirSync(GENERATED_DIR, { recursive: true });
+  const file = `${Date.now()}-${slugify(opts?.label ?? '')}.${ext}`;
+  const abs = join(GENERATED_DIR, file);
+  writeFileSync(abs, Buffer.from(base64, 'base64'));
+  return { path: abs, fileUrl: pathToFileURL(abs).href };
 }
 
 // ─── Local shell executor (full system access) ──────────────────────────
@@ -256,6 +306,13 @@ async function getAgent(): Promise<Agent> {
         shell: makeLocalShell(cwd),
         needsApproval: false, // seatbelt is the denylist; no approval UI yet
       }),
+      // Hosted image-generation tool (runs server-side; returns base64 on the
+      // run result). The Brain uses it for GENERATIVE concept art — mood,
+      // texture, hero imagery — then persists the bytes via saveGeneratedImage
+      // and surfaces them as a `moodboard` of `file://` concept images (spec
+      // §10). Structured layout/design still prefers Pencil (per the persona).
+      // No executor: it's a HostedTool, run by the model server-side.
+      imageGenerationTool(),
     ],
     mcpServers: pencilServer ? [pencilServer] : [],
   });
@@ -290,5 +347,5 @@ export async function runAgentBrain(prompt: string): Promise<AgentBrainResult> {
   return { summary, decisions: [], full_text: summary };
 }
 
-/** Test/diagnostic hook — exposed so the catastrophic guard is unit-testable. */
-export const _internals = { isCatastrophic };
+/** Test/diagnostic hook — exposed so the catastrophic guard + image-save are unit-testable. */
+export const _internals = { isCatastrophic, saveGeneratedImage, GENERATED_DIR };
