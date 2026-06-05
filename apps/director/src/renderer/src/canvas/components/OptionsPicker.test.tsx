@@ -59,6 +59,26 @@ describe('OptionsPicker', () => {
     expect(html).not.toContain('options-picker-detail');
   });
 
+  it('renders a 1-based ordinal badge per option (voice/keyboard pairing)', () => {
+    const html = renderToString(
+      <OptionsPicker
+        question="Pick one"
+        options={[
+          { id: 'a', label: 'Alpha' },
+          { id: 'b', label: 'Beta' },
+          { id: 'c', label: 'Gamma' },
+        ]}
+      />,
+    );
+    expect(html).toContain('options-picker-badge');
+    // Ordinals 1..3 rendered in badge order.
+    expect(html).toContain('>1<');
+    expect(html).toContain('>2<');
+    expect(html).toContain('>3<');
+    // Label + detail live in the text column.
+    expect(html).toContain('options-picker-text');
+  });
+
   it('renders a calm empty state when options are missing', () => {
     const html = renderToString(
       <OptionsPicker
@@ -69,5 +89,6 @@ describe('OptionsPicker', () => {
     );
     expect(html).toContain('No options to choose from.');
     expect(html).not.toMatch(/role="option"/);
+    expect(html).not.toContain('options-picker-badge');
   });
 });

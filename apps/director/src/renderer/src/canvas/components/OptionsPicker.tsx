@@ -11,18 +11,18 @@
  * `sessionId`, when present, is an opaque correlation token (the resume
  * picker carries one — `buildResumePicker` in ipcSync.ts). It is echoed back
  * to the strip via the same response so the strip can correlate; this
- * component renders it into a hidden `data-session-id` attribute and forwards
- * it through `onSelect`'s second-arg-free contract by leaving correlation to
- * the parent, which already has `sessionId` on the payload props. (We keep the
- * `onSelect` signature to one arg to match Moodboard; the Integrate wave reads
- * `payload.props.sessionId` if it needs to echo it.)
+ * component renders it into a hidden `data-session-id` attribute and the
+ * Integrate wave reads `payload.props.sessionId` if it needs to echo it.
  *
- * Pure presentational — no IPC, no store mutations. Single-select only (v1,
- * no `allow_multi`). Renders defensively: tolerates a missing/empty options
- * list (calm empty state) and never throws.
+ * Polish (BUILD wave): each card carries a 1-based ordinal badge so a spoken
+ * "the second one" maps to the visual, and the badge doubles as a keyboard
+ * hint (1–9 select directly; ↑/↓ move focus). Selection shows a check. Pure
+ * presentational — no IPC, no store mutations. Single-select only (v1, no
+ * `allow_multi`). Renders defensively: tolerates a missing/empty options list
+ * (calm empty state) and never throws.
  */
 
-import { useState, type JSX } from 'react';
+import { useRef, useState, type JSX, type KeyboardEvent } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 
 export interface OptionsPickerOption {
@@ -59,6 +59,7 @@ export function OptionsPicker({
 }: OptionsPickerProps): JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const reduced = useReducedMotion();
+  const cardRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   // Defensive: the model may emit a malformed/empty options array.
   const safeOptions = Array.isArray(options) ? options : [];
@@ -70,11 +71,32 @@ export function OptionsPicker({
     window.setTimeout(() => onSelect?.(id), reduced ? 0 : 320);
   };
 
+  // Roving keyboard nav: ↑/↓ (and j/k) move focus; a digit 1–9 selects the
+  // matching ordinal directly (pairs with the visible badge + voice "pick 2").
+  const handleKeyDown = (
+    e: KeyboardEvent<HTMLButtonElement>,
+    index: number,
+  ): void => {
+    if (selectedId) return;
+    if (e.key === 'ArrowDown' || e.key === 'j') {
+      e.preventDefault();
+      cardRefs.current[(index + 1) % safeOptions.length]?.focus();
+    } else if (e.key === 'ArrowUp' || e.key === 'k') {
+      e.preventDefault();
+      cardRefs.current[
+        (index - 1 + safeOptions.length) % safeOptions.length
+      ]?.focus();
+    } else if (/^[1-9]$/.test(e.key)) {
+      const target = safeOptions[Number(e.key) - 1];
+      if (target) {
+        e.preventDefault();
+        handleSelect(target.id);
+      }
+    }
+  };
+
   return (
-    <div
-      className="options-picker"
-      data-session-id={sessionId ?? undefined}
-    >
+    <div className="options-picker" data-session-id={sessionId ?? undefined}>
       {title ? <div className="canvas-eyebrow">{title}</div> : null}
       {question ? (
         <div className="options-picker-question">{question}</div>
@@ -82,27 +104,41 @@ export function OptionsPicker({
       {safeOptions.length === 0 ? (
         <div className="options-picker-empty">No options to choose from.</div>
       ) : (
-        <div className="options-picker-list" role="listbox">
-          {safeOptions.map((option) => {
+        <div className="options-picker-list" role="listbox" aria-label={question}>
+          {safeOptions.map((option, index) => {
             const isSelected = selectedId === option.id;
             const isDimmed = selectedId !== null && !isSelected;
             return (
               <button
                 key={option.id}
+                ref={(el) => {
+                  cardRefs.current[index] = el;
+                }}
                 type="button"
                 role="option"
                 aria-selected={isSelected}
+                tabIndex={selectedId ? -1 : 0}
                 className={`options-picker-card${isSelected ? ' selected' : ''}${
                   isDimmed ? ' dimmed' : ''
                 }`}
                 data-no-drag
                 disabled={selectedId !== null && !isSelected}
                 onClick={() => handleSelect(option.id)}
+                onKeyDown={(e) => handleKeyDown(e, index)}
               >
-                <span className="options-picker-label">{option.label}</span>
-                {option.detail ? (
-                  <span className="options-picker-detail">{option.detail}</span>
-                ) : null}
+                {/* Ordinal badge — 1-based; pairs voice "the second" / digit
+                    keys with the visual. Becomes a check on selection. */}
+                <span className="options-picker-badge" aria-hidden>
+                  {isSelected && index < 9 ? '✓' : index < 9 ? index + 1 : '•'}
+                </span>
+                <span className="options-picker-text">
+                  <span className="options-picker-label">{option.label}</span>
+                  {option.detail ? (
+                    <span className="options-picker-detail">
+                      {option.detail}
+                    </span>
+                  ) : null}
+                </span>
                 {isSelected ? (
                   <motion.span
                     className="options-picker-halo"

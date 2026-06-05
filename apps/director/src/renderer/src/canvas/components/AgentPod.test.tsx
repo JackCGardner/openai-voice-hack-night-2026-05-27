@@ -60,6 +60,35 @@ describe('AgentPod', () => {
     expect(html).toContain('AgentPod.tsx');
   });
 
+  it('renders a Hive header summarizing live state', () => {
+    // One working (Iris), one blocked (Dax), one done (Mara) → blocked leads.
+    const html = renderToString(<AgentPod agents={THREE_AGENTS} />);
+    expect(html).toContain('Hive');
+    expect(html).toContain('1 blocked');
+    expect(html).toContain('1 working');
+  });
+
+  it('summarizes a single agent without pluralizing', () => {
+    const html = renderToString(
+      <AgentPod
+        agents={[
+          {
+            id: 'solo',
+            name: 'Solo',
+            role: 'Backend',
+            accentColor: '#58D68D',
+            // No active/blocked/done bucket → falls through to the count.
+            status: 'spawning',
+            currentTask: null,
+            recentFiles: [],
+          },
+        ]}
+      />,
+    );
+    // spawning is "active" per the summary buckets.
+    expect(html).toContain('1 working');
+  });
+
   it('falls back to the latest trail entry when currentTask is null', () => {
     // Mara has currentTask: null but a trail — the headline should use it.
     const html = renderToString(<AgentPod agents={[THREE_AGENTS[2]!]} />);

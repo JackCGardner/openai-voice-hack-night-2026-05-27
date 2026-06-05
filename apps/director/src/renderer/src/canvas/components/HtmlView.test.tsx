@@ -45,9 +45,18 @@ describe('HtmlView', () => {
     expect(html).not.toContain('<iframe');
   });
 
+  it('shows a loading veil over the frame until it paints', () => {
+    // On the server render the iframe has not fired onLoad, so the veil is
+    // present (it's removed client-side on load).
+    const html = renderToString(<HtmlView html="<b>x</b>" />);
+    expect(html).toContain('html-view-frame-wrap');
+    expect(html).toContain('html-view-loading');
+  });
+
   it('renders a calm empty state for an empty/whitespace html string', () => {
     const html = renderToString(<HtmlView html="   " />);
     expect(html).toContain('Nothing to render.');
     expect(html).not.toContain('<iframe');
+    expect(html).not.toContain('html-view-loading');
   });
 });

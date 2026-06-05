@@ -885,3 +885,236 @@
   white-space: pre;
   word-break: normal;
 }
+
+/* ─── § genui-polish (BUILD wave — spec §1 / §6 component polish) ─────────
+   Append-only block. Adds: CodePreview copy affordance + literal/tag token
+   colors + a line-count-aware gutter; OptionsPicker ordinal badge row;
+   HtmlView loading veil; DiagramView structured edge-list renderer. Earlier
+   rules above are untouched; these refine/extend them. */
+
+/* CodePreview — header right group (lang chip + copy) and copy button. */
+.code-preview-head-right {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.code-preview-lang {
+  /* Override the earlier `margin-left:auto` — the right group now owns
+     alignment so the copy button sits beside the language chip. */
+  margin-left: 0;
+}
+
+.code-preview-copy {
+  appearance: none;
+  border: 0.5px solid var(--border-subtle);
+  background: rgba(28, 28, 32, 0.7);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    background 140ms var(--ease-smooth),
+    color 140ms var(--ease-smooth),
+    border-color 140ms var(--ease-smooth);
+  -webkit-app-region: no-drag;
+}
+
+.code-preview-copy:hover {
+  background: rgba(40, 40, 46, 0.9);
+  color: var(--text-primary);
+}
+
+.code-preview-copy:focus-visible {
+  outline: 2px solid var(--status-thinking);
+  outline-offset: 2px;
+}
+
+/* Gutter scales with the line count (CodePreview sets --cp-gutter on <pre>). */
+.code-preview-pre {
+  --cp-gutter: 3ch;
+}
+
+.code-preview-line {
+  /* Override the earlier fixed 40px gutter with the count-aware width. */
+  grid-template-columns: var(--cp-gutter) 1fr;
+  gap: 14px;
+}
+
+.code-preview-ln {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Extra highlight token colors (tag markup + value literals). */
+.cp-tag {
+  color: #7fb0e8;
+}
+
+.cp-literal {
+  color: #e0a878;
+}
+
+/* OptionsPicker — ordinal badge + text column. The card is now a row:
+   [badge] [label/detail stack]. Earlier `.options-picker-card` set
+   flex-direction:column; this re-lays it as a row without touching that rule
+   (the text stack keeps the column). */
+.options-picker-card {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+}
+
+.options-picker-badge {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  background: rgba(255, 255, 255, 0.04);
+  border: 0.5px solid var(--border-subtle);
+  transition:
+    color 160ms var(--ease-smooth),
+    background 160ms var(--ease-smooth),
+    border-color 160ms var(--ease-smooth);
+}
+
+.options-picker-card.selected .options-picker-badge {
+  color: var(--status-working);
+  background: rgba(88, 214, 141, 0.16);
+  border-color: rgba(88, 214, 141, 0.35);
+}
+
+.options-picker-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* HtmlView — loading veil over the frame until the srcDoc paints. */
+.html-view-frame-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.html-view-frame-wrap .html-view-frame {
+  flex: 1;
+}
+
+.html-view-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: rgba(248, 248, 250, 0.96);
+  pointer-events: none;
+}
+
+.html-view-spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(94, 94, 98, 0.25);
+  border-top-color: var(--text-tertiary);
+  animation: html-view-spin 720ms linear infinite;
+}
+
+@keyframes html-view-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .html-view-spinner {
+    animation: none;
+  }
+}
+
+/* DiagramView — structured edge-list renderer (parses common mermaid/DOT
+   flows into source → label → target rows). The raw-source <pre> fallback
+   above still applies for anything the parser can't recognize. */
+.diagram-graph {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.diagram-graph-header {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  margin-bottom: 2px;
+}
+
+.diagram-edges {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.diagram-edge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.diagram-node {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+  padding: 5px 11px;
+  border-radius: 9px;
+  border: 0.5px solid var(--border-subtle);
+  background: rgba(28, 28, 32, 0.72);
+  white-space: nowrap;
+}
+
+.diagram-arrow {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  color: var(--text-tertiary);
+}
+
+.diagram-edge-label {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  color: var(--text-secondary);
+  line-height: 1;
+}
+
+.diagram-arrow-svg line {
+  stroke: var(--text-tertiary);
+  stroke-width: 1.5;
+}
+
+.diagram-arrow-svg path {
+  fill: var(--text-tertiary);
+}

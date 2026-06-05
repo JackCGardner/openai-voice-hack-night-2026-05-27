@@ -10,14 +10,18 @@
  * `highlight.js` / `prismjs`, and the spec says "correctness > color" and to
  * avoid adding a heavy dep. We use a tiny, XSS-safe regex tokenizer that
  * handles the common surface (comments, strings, numbers, a generic keyword
- * set, and JSX/HTML-ish tags). Highlighting is applied AFTER HTML-escaping
- * the source, so the `dangerouslySetInnerHTML` below only ever receives
- * markup we generated from escaped text — never raw model/user code injected
- * into the canvas DOM. Unknown languages degrade gracefully to escaped,
- * un-colored monospace text.
+ * set, JSX/HTML tags + attributes, and the boolean/null literals). The
+ * tokenizer runs AFTER HTML-escaping the source, so the
+ * `dangerouslySetInnerHTML` below only ever receives markup we generated from
+ * escaped text — never raw model/user code injected into the canvas DOM.
+ * Unknown languages still get comment/string/number/keyword coloring.
+ *
+ * Polish (BUILD wave): JSX/HTML tag coloring (so `<div>` reads as markup, not
+ * an un-colored entity run), a copy-to-clipboard affordance, and a line count
+ * in the header. The gutter stays 1:1 with the code lines.
  */
 
-import { type JSX } from 'react';
+import { useState, type JSX } from 'react';
 
 export interface CodePreviewProps {
   /** Card header fallback when `path` is absent. */
@@ -46,13 +50,17 @@ function escapeHtml(input: string): string {
 const KEYWORDS = new Set([
   'abstract', 'as', 'async', 'await', 'break', 'case', 'catch', 'class',
   'const', 'continue', 'def', 'default', 'delete', 'do', 'elif', 'else',
-  'enum', 'export', 'extends', 'false', 'finally', 'for', 'from', 'func',
+  'enum', 'export', 'extends', 'finally', 'for', 'from', 'func',
   'function', 'go', 'if', 'implements', 'import', 'in', 'instanceof',
-  'interface', 'let', 'namespace', 'new', 'null', 'package', 'pass',
+  'interface', 'let', 'namespace', 'new', 'package', 'pass',
   'private', 'protected', 'public', 'readonly', 'return', 'static', 'super',
-  'switch', 'this', 'throw', 'true', 'try', 'type', 'typeof', 'undefined',
+  'switch', 'this', 'throw', 'try', 'type', 'typeof',
   'var', 'void', 'while', 'with', 'yield',
 ]);
+
+// The literal/constant set is colored distinctly from control keywords so a
+// `true`/`null` reads as a value, matching most editor themes.
+const LITERALS = new Set(['true', 'false', 'null', 'undefined', 'None', 'True', 'False', 'nil']);
 
 /**
  * Tokenize ESCAPED source into highlighted HTML. Operates on already-escaped
@@ -60,23 +68,26 @@ const KEYWORDS = new Set([
  * single opaque units (the regexes below never split an entity).
  *
  * Order matters: comments and strings are matched first so their interiors
- * are not re-tokenized as keywords/numbers.
+ * are not re-tokenized; tags are matched before bare words so `&lt;div&gt;`
+ * colors as markup.
  */
 function highlightEscaped(escaped: string): string {
-  // Single master regex with named-ish alternation. Each branch is captured
-  // so we can wrap the matched run in the right span; anything not matched
-  // passes through untouched (already escaped).
+  // Single master regex with ordered alternation. Each branch is captured so
+  // we can wrap the matched run in the right span; anything not matched passes
+  // through untouched (already escaped).
   const pattern = new RegExp(
     [
-      // line comments: // ... and # ...   (# must be start-of-token-ish)
+      // 1 line comments: // ... and # ...
       '(\\/\\/[^\\n]*|#[^\\n]*)',
-      // block comments: /* ... */
+      // 2 block comments: /* ... */
       '(\\/\\*[\\s\\S]*?\\*\\/)',
-      // double / single / backtick strings (escaped quotes are entities)
+      // 3 double / single / backtick strings (escaped quotes are entities)
       '(&quot;(?:[^&]|&(?!quot;))*&quot;|&#39;(?:[^&]|&(?!#39;))*&#39;|`[^`]*`)',
-      // numbers: ints, floats, hex
+      // 4 JSX/HTML tag open/close: &lt;Tag … &gt;  /  &lt;/Tag&gt;  /  self-close
+      '(&lt;\\/?[A-Za-z][A-Za-z0-9.-]*(?:[^&]|&(?!gt;))*?&gt;)',
+      // 5 numbers: ints, floats, hex
       '(\\b0[xX][0-9a-fA-F]+\\b|\\b\\d+(?:\\.\\d+)?\\b)',
-      // bare words (candidates for keyword coloring)
+      // 6 bare words (keyword / literal / plain)
       '([A-Za-z_$][A-Za-z0-9_$]*)',
     ].join('|'),
     'g',
@@ -84,15 +95,16 @@ function highlightEscaped(escaped: string): string {
 
   return escaped.replace(
     pattern,
-    (match, lineComment, blockComment, str, num, word): string => {
+    (match, lineComment, blockComment, str, tag, num, word): string => {
       if (lineComment) return `<span class="cp-tok cp-comment">${lineComment}</span>`;
       if (blockComment) return `<span class="cp-tok cp-comment">${blockComment}</span>`;
       if (str) return `<span class="cp-tok cp-string">${str}</span>`;
+      if (tag) return `<span class="cp-tok cp-tag">${tag}</span>`;
       if (num) return `<span class="cp-tok cp-number">${num}</span>`;
       if (word) {
-        return KEYWORDS.has(word)
-          ? `<span class="cp-tok cp-keyword">${word}</span>`
-          : word;
+        if (KEYWORDS.has(word)) return `<span class="cp-tok cp-keyword">${word}</span>`;
+        if (LITERALS.has(word)) return `<span class="cp-tok cp-literal">${word}</span>`;
+        return word;
       }
       return match;
     },
@@ -105,6 +117,7 @@ export function CodePreview({
   language,
   code,
 }: CodePreviewProps = {}): JSX.Element {
+  const [copied, setCopied] = useState(false);
   const source = typeof code === 'string' ? code : '';
   const header =
     (typeof path === 'string' && path.length > 0 && path) ||
@@ -123,6 +136,21 @@ export function CodePreview({
   }
 
   const hasCode = source.length > 0;
+  // Gutter width scales with the line count so 3-digit files don't clip.
+  const gutterCh = Math.max(2, String(rawLines.length).length) + 1;
+
+  const handleCopy = (): void => {
+    // navigator.clipboard is async + may be unavailable (non-secure context /
+    // node test render) — guard and fail silently; copy is a nicety, not a
+    // contract.
+    try {
+      void navigator?.clipboard?.writeText(source);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      /* no-op: copy is best-effort */
+    }
+  };
 
   return (
     <div className="code-preview">
@@ -134,14 +162,30 @@ export function CodePreview({
         ) : (
           <span className="canvas-eyebrow">Code</span>
         )}
-        {langLabel ? (
-          <span className="code-preview-lang">{langLabel}</span>
-        ) : null}
+        <span className="code-preview-head-right">
+          {langLabel ? (
+            <span className="code-preview-lang">{langLabel}</span>
+          ) : null}
+          {hasCode ? (
+            <button
+              type="button"
+              className="code-preview-copy"
+              data-no-drag
+              onClick={handleCopy}
+              aria-label={copied ? 'Copied' : 'Copy code'}
+            >
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          ) : null}
+        </span>
       </div>
 
       {hasCode ? (
         <div className="code-preview-scroll" data-no-drag>
-          <pre className="code-preview-pre">
+          <pre
+            className="code-preview-pre"
+            style={{ ['--cp-gutter' as string]: `${gutterCh}ch` }}
+          >
             <code className="code-preview-code">
               {rawLines.map((line, i) => {
                 const escaped = escapeHtml(line);
