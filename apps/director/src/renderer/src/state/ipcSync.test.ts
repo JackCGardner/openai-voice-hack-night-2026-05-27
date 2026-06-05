@@ -228,6 +228,95 @@ describe('handleCodexEvent', () => {
   });
 });
 
+// ─── § agent-visibility backfill (list_agents-blind fix) ──────────────────
+// A dropped / out-of-order agent_started must NOT make the agent invisible:
+// ANY codex event for an unknown id BACKFILLS the card from the payload
+// instead of early-returning. agent_started stays the rich create.
+
+describe('handleCodexEvent — backfill for unknown agent (no prior agent_started)', () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  it('file_change for an unknown id creates the card with the changed file', () => {
+    handleCodexEvent(
+      makeEvent('file_change', {
+        item: {
+          type: 'file_change',
+          changes: [{ path: 'late/App.tsx', kind: 'update' }],
+        },
+      }),
+    );
+    const agent = useStore.getState().agents[MAYA];
+    expect(agent).toBeDefined();
+    expect(agent?.status).toBe('working');
+    expect(agent?.name).toBe(MAYA); // id-derived fallback
+    expect(agent?.recentFiles).toEqual(['late/App.tsx']);
+  });
+
+  it('agent_message for an unknown id creates the card + sets the task', () => {
+    handleCodexEvent(
+      makeEvent('agent_message', {
+        phase: 'item.completed',
+        item: { type: 'agent_message', text: 'already underway' },
+      }),
+    );
+    const agent = useStore.getState().agents[MAYA];
+    expect(agent).toBeDefined();
+    expect(agent?.currentTask).toBe('already underway');
+    expect(agent?.taskTrail).toContain('already underway');
+  });
+
+  it('thread_started for an unknown id creates the card + stamps the thread id', () => {
+    handleCodexEvent(makeEvent('thread_started', { thread_id: 'th_late' }));
+    const agent = useStore.getState().agents[MAYA];
+    expect(agent).toBeDefined();
+    expect(agent?.codexThreadId).toBe('th_late');
+  });
+
+  it('error for an unknown id creates the card then blocks it', () => {
+    handleCodexEvent(makeEvent('error', { message: 'missing key' }));
+    const agent = useStore.getState().agents[MAYA];
+    expect(agent).toBeDefined();
+    expect(agent?.status).toBe('blocked');
+    expect(agent?.blocker).toBe('missing key');
+  });
+
+  it('agent_finished for an unknown id creates the card then completes it', () => {
+    handleCodexEvent(
+      makeEvent('agent_finished', { aborted: false, summary: 'done late' }),
+    );
+    const agent = useStore.getState().agents[MAYA];
+    expect(agent).toBeDefined();
+    expect(agent?.status).toBe('done');
+    expect(agent?.finishedAt).toBeTypeOf('number');
+  });
+
+  it('agent_hang_suspected for an unknown id creates the card + watchdog blocker', () => {
+    handleCodexEvent(
+      makeEvent('agent_hang_suspected', { thresholdMs: 60_000 }),
+    );
+    const agent = useStore.getState().agents[MAYA];
+    expect(agent).toBeDefined();
+    expect(agent?.blocker).toBe('watchdog: no output 60s');
+  });
+
+  it('backfill uses payload name/role when present (e.g. a richer event)', () => {
+    handleCodexEvent(
+      makeEvent('agent_message', {
+        name: 'Jin',
+        role: 'Backend',
+        phase: 'item.completed',
+        item: { type: 'agent_message', text: 'POST /api routed' },
+      }),
+    );
+    const agent = useStore.getState().agents[MAYA];
+    expect(agent?.name).toBe('Jin');
+    expect(agent?.role).toBe('Backend');
+    expect(agent?.accentColor).toBe('#4A9E9C'); // Backend accent
+  });
+});
+
 // ─── § agent-pod-live (Integrate wave — spec §3.2) ────────────────────────
 
 function makeAgent(over: Partial<Agent> & { id: string }): Agent {

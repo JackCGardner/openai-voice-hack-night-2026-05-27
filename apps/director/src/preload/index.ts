@@ -34,6 +34,7 @@ import {
   type SessionResumeResponse,
   type PttSignalPayload,
   type ProactiveAnnouncePayload,
+  type AgentsHydrateResponse,
 } from '../shared/ipc.js';
 import type { CodexEvent } from '../shared/codex.js';
 import type {
@@ -105,6 +106,12 @@ const api: DirectorBridge = {
       const listener = (_evt: unknown, event: CodexEvent): void => cb(event);
       ipcRenderer.on(IpcChannel.CodexEvent, listener);
       return () => ipcRenderer.removeListener(IpcChannel.CodexEvent, listener);
+    },
+  },
+  // ─── § agent-visibility — mount resync (list_agents-blind fix) ──────────
+  agents: {
+    hydrate(): Promise<AgentsHydrateResponse> {
+      return ipcRenderer.invoke(IpcChannel.AgentsHydrate);
     },
   },
   // ─── § push-to-talk (native global key listener) ───────────────────────

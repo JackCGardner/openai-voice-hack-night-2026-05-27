@@ -127,6 +127,50 @@ function asObject(v: unknown): Record<string, unknown> | null {
     : null;
 }
 
+/**
+ * § agent-visibility backfill (list_agents-blind fix).
+ *
+ * Ensure a card exists for `id`, synthesizing a minimal one from the event if
+ * we never saw its `agent_started`. Previously every non-`agent_started` arm
+ * early-returned when the card was missing, so a single dropped / out-of-order
+ * `agent_started` (renderer mounted late, IPC race, replay) made the agent
+ * invisible forever — the Hive could silently miss agents. Now ANY codex event
+ * BACKFILLS the card instead of dropping the update; `agent_started` stays the
+ * rich create. Returns the (possibly freshly-created) agent, or null only when
+ * creation itself failed (should not happen).
+ */
+function ensureAgent(
+  id: string,
+  event: CodexEvent,
+  payload: Record<string, unknown>,
+): CanonicalAgent | null {
+  const existing = useStore.getState().agents[id];
+  if (existing) return existing;
+  // Backfill: derive whatever we can from the payload. Non-started events
+  // rarely carry name/role, so default to id + Frontend (matches the main-side
+  // side-store synthesis in agent-side-store-sync.ts and toActiveAgentView).
+  const name = asString(payload.name) ?? id;
+  const role = asString(payload.role) ?? 'Frontend';
+  const task = asString(payload.task);
+  const worktree = asString(payload.worktree);
+  commands.addAgent({
+    id,
+    name,
+    role,
+    accentColor: accentForRole(role),
+    status: 'working',
+    currentTask: task,
+    taskTrail: task ? [task] : [],
+    recentFiles: [],
+    blocker: null,
+    worktreePath: worktree,
+    codexThreadId: null,
+    dispatchedAt: event.at ?? Date.now(),
+    finishedAt: null,
+  });
+  return useStore.getState().agents[id] ?? null;
+}
+
 /** Prepend new paths, dedupe by string equality, cap. Newest first. */
 function mergeRecentFiles(existing: string[], incoming: string[]): string[] {
   if (incoming.length === 0) return existing;
@@ -196,6 +240,8 @@ export function handleCodexEvent(event: CodexEvent): void {
         console.warn('[ipcSync] thread_started missing thread_id', event);
         return;
       }
+      // Backfill the card if agent_started was missed/out-of-order.
+      ensureAgent(id, event, payload);
       commands.updateAgent(id, { codexThreadId: threadId });
       return;
     }
@@ -217,7 +263,8 @@ export function handleCodexEvent(event: CodexEvent): void {
         if (fallback) incoming.push(fallback);
       }
       if (incoming.length === 0) return;
-      const existing = useStore.getState().agents[id];
+      // Backfill the card if agent_started was missed/out-of-order.
+      const existing = ensureAgent(id, event, payload);
       if (!existing) return;
       const merged = mergeRecentFiles(existing.recentFiles, incoming);
       commands.updateAgent(id, { recentFiles: merged });
@@ -230,7 +277,8 @@ export function handleCodexEvent(event: CodexEvent): void {
       const item = asObject(payload.item);
       const text = item ? asString(item.text) : null;
       if (!text) return;
-      const existing = useStore.getState().agents[id];
+      // Backfill the card if agent_started was missed/out-of-order.
+      const existing = ensureAgent(id, event, payload);
       if (!existing) return;
       const nextTrail = [...existing.taskTrail, text].slice(-TASK_TRAIL_CAP);
       commands.updateAgent(id, {
@@ -249,21 +297,18 @@ export function handleCodexEvent(event: CodexEvent): void {
         return item ? asString(item.message) : null;
       })();
       const message = flatMessage ?? itemMessage ?? 'unknown_error';
-      const existing = useStore.getState().agents[id];
-      if (!existing) {
-        console.warn('[ipcSync] codex error for unknown agent', id);
-        return;
-      }
+      // Backfill the card if agent_started was missed/out-of-order, then block.
+      const existing = ensureAgent(id, event, payload);
+      if (!existing) return;
       commands.blockAgent(id, message);
       return;
     }
 
     case 'agent_finished': {
-      const existing = useStore.getState().agents[id];
-      if (!existing) {
-        console.warn('[ipcSync] agent_finished for unknown agent', id);
-        return;
-      }
+      // Backfill the card if agent_started was missed/out-of-order, so a
+      // finish for an unseen agent still surfaces (then immediately resolves).
+      const existing = ensureAgent(id, event, payload);
+      if (!existing) return;
       const aborted = payload.aborted === true;
       if (aborted) {
         commands.failAgent(id, 'aborted');
@@ -289,11 +334,9 @@ export function handleCodexEvent(event: CodexEvent): void {
     // the planner; here we just stamp the agent card with a blocker so
     // the Hive UI surfaces the stuck state next to the agent.
     case 'agent_hang_suspected': {
-      const existing = useStore.getState().agents[id];
-      if (!existing) {
-        console.warn('[ipcSync] hang_suspected for unknown agent', id);
-        return;
-      }
+      // Backfill the card if agent_started was missed/out-of-order.
+      const existing = ensureAgent(id, event, payload);
+      if (!existing) return;
       const thresholdMs = (() => {
         const raw = payload.thresholdMs;
         return typeof raw === 'number' && raw > 0 ? raw : 60_000;
@@ -553,6 +596,45 @@ export function initIpcSync(): void {
 
   // § agent-pod-live (Integrate wave — spec §3.2)
   initAgentPodRelay();
+
+  // § agent-visibility — mount resync (list_agents-blind fix)
+  void hydrateAgentsFromMain();
+}
+
+// ─── § agent-visibility — mount resync (list_agents-blind fix) ────────────
+// On mount the renderer pulls the current agent roster from main's side-store
+// source of truth and upserts each into the store, so agents that were already
+// running before this renderer subscribed to `codex.event` (late mount, window
+// reload, resume) show up immediately instead of only appearing on their next
+// event. `commands.addAgent` is idempotent (updates in place if the id already
+// exists), so this is safe to run alongside the live event stream. Best-effort:
+// a missing bridge / failed invoke is swallowed — the live stream still works.
+
+export async function hydrateAgentsFromMain(): Promise<void> {
+  const bridge = window.director;
+  if (!bridge?.agents?.hydrate) {
+    console.warn(
+      '[ipcSync] bridge.agents.hydrate not exposed — mount resync disabled',
+    );
+    return;
+  }
+  try {
+    const res = await bridge.agents.hydrate();
+    if (!res.ok) {
+      console.warn('[ipcSync] agents.hydrate failed', res.error);
+      return;
+    }
+    for (const agent of res.agents) {
+      if (!agent || typeof agent.id !== 'string' || agent.id.length === 0) {
+        continue;
+      }
+      // addAgent updates in place when the id already exists, so an event that
+      // raced ahead of this hydrate is not clobbered destructively.
+      commands.addAgent(agent as CanonicalAgent);
+    }
+  } catch (err) {
+    console.warn('[ipcSync] agents.hydrate threw', err);
+  }
 }
 
 // ─── § persistence-wiring (gap 5) ─────────────────────────────────────────

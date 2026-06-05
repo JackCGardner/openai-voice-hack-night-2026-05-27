@@ -37,6 +37,11 @@ import {
   type AttributedWorktree,
   type MergeResult,
 } from './worktree-merger.js';
+// ─── § agent-visibility (list_agents-blind fix) ──────────────────────────
+// Upsert a side-store agent snapshot on EVERY CodexEvent (see emit() below).
+// This gives side-store's writeAgent/queueAgentWrite their first production
+// caller, so readAllAgents()/list_agents reflect live agents.
+import { syncAgentFromCodexEvent } from './agent-side-store-sync.js';
 
 // ─── Re-exports for backwards compat ──────────────────────────────────
 
@@ -61,6 +66,17 @@ function emit(event: CodexEvent): void {
     } catch (err) {
       console.warn('[codex-pool] emit failed', err);
     }
+  }
+  // ─── § agent-visibility (list_agents-blind fix) ──────────────────────
+  // Upsert the main-side agent snapshot (writeAgent/queueAgentWrite via the
+  // side store) on every event, so `readAllAgents()` / `list_agents` see the
+  // live roster even before / regardless of the renderer. Defensive inside —
+  // never throws — but guard here too so a renderer send + the fan-in hook
+  // below always run regardless of the side-store write.
+  try {
+    syncAgentFromCodexEvent(event);
+  } catch (err) {
+    console.warn('[codex-pool] side-store agent upsert failed', err);
   }
   // § P6.5 fan-in consumer — when the pool synthesizes `batch_completed`,
   // run the merge fan-in. Forward to the renderer FIRST (above) so the Hive

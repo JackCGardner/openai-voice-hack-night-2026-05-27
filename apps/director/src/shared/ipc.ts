@@ -156,6 +156,12 @@ export const IpcChannel = {
   PttUp: 'ptt.up',
   /** Main → strip: PTT chord double-tapped → toggle hands-free lock. */
   PttLock: 'ptt.lock',
+  // ─── § agent-visibility — mount resync (list_agents-blind fix) ─────────
+  /** Strip renderer → main (invoke): on mount, hydrate the agents slice from
+   *  the main-side side-store source of truth (`readAllAgents()`), so a
+   *  late-mounting renderer shows agents that were already running before it
+   *  subscribed to `codex.event`. Returns the current on-disk agent roster. */
+  AgentsHydrate: 'agents.hydrate',                    // agent-visibility
 } as const;
 
 export type IpcChannel = (typeof IpcChannel)[keyof typeof IpcChannel];
@@ -476,8 +482,9 @@ export interface DirectorBridge {
   };
   /** Tool dispatch (W1.tools). The renderer with the data channel
    *  forwards function calls into main, which re-broadcasts to every
-   *  renderer (Strip + Canvas) and returns a result. W3/W4 will plug in
-   *  real handlers; for now main returns an immediate `{ok:true}` stub. */
+   *  renderer (Strip + Canvas) and returns a result. Main's
+   *  `tool-router.routeToolCall` handles these for real (consult_director,
+   *  dispatch_agent, render_canvas, ask_user, list_agents, …) — not a stub. */
   tool: {
     call: (req: ToolCallRequest) => Promise<ToolCallResponse>;
     /** Subscribe to broadcast `tool.call` events fired by main when
@@ -518,6 +525,12 @@ export interface DirectorBridge {
    *  (append-only marker) and the mapping table in `handleCodexEvent`. */
   codex: {
     onEvent: (cb: (event: CodexEvent) => void) => () => void;
+  };
+  // ─── § agent-visibility — mount resync (list_agents-blind fix) ───────
+  /** On mount, hydrate the agents slice from main's side-store source of
+   *  truth so a late-mounting renderer shows already-running agents. */
+  agents: {
+    hydrate: () => Promise<AgentsHydrateResponse>;
   };
   // ─── § push-to-talk (native global key listener) ────────────────────
   /** Hold ⌃⌥ to talk, double-tap to lock. Main's native listener emits
@@ -712,7 +725,22 @@ export interface IpcInvokeMap {
     request: SessionResumePayload;
     response: SessionResumeResponse;
   };
+  // § agent-visibility — mount resync (list_agents-blind fix)
+  [IpcChannel.AgentsHydrate]: {
+    request: void;
+    response: AgentsHydrateResponse;
+  };
 }
+
+// ─── § agent-visibility payloads (list_agents-blind fix) ────────────────
+// The renderer asks main for the current agent roster on mount. Main reads
+// the side-store source of truth (`readAllAgents()`) and returns it. The
+// renderer upserts each into its store (commands.addAgent is idempotent), so
+// agents that started before the renderer subscribed to `codex.event` show up.
+
+export type AgentsHydrateResponse =
+  | { ok: true; agents: Agent[] }
+  | { ok: false; error: string };
 
 // ─── § canvas-degradation payloads (W5 — P6.6) ──────────────────────────
 // `AppWriteEnv` lets the Canvas window's ApiKeyMissing card persist a

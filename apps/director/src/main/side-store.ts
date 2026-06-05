@@ -439,6 +439,21 @@ export async function registerSideStoreIpc(): Promise<void> {
       return { ok: false as const, error: message };
     }
   });
+
+  // ─── § agent-visibility — mount resync (list_agents-blind fix) ─────────
+  // The renderer hydrates its agents slice from this main-side source of
+  // truth on mount, so a late-mounting renderer shows agents that were
+  // already running before it subscribed to `codex.event`. Reads the same
+  // per-agent files the codex-pool upsert (agent-side-store-sync.ts) writes.
+  ipcMain.handle(IpcChannel.AgentsHydrate, async () => {
+    try {
+      const agents = await readAllAgents();
+      return { ok: true as const, agents };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false as const, error: message };
+    }
+  });
 }
 
 export type SidestoreSnapshotResponse =
