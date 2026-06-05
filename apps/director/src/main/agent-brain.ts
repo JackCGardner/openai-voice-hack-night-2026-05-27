@@ -24,6 +24,7 @@
 
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
+import { homedir } from 'node:os';
 import {
   Agent,
   run,
@@ -38,13 +39,21 @@ import {
 // one-line flip if it differs from this string.
 const BRAIN_MODEL = process.env.DIRECTOR_BRAIN_MODEL || 'gpt-5.5';
 
-// The project the brain operates on. Defaults to the user's configured
-// project root (DIRECTOR_PROJECT_ROOT) else the process cwd.
-function projectRoot(): string {
-  return resolve(process.env.DIRECTOR_PROJECT_ROOT || process.cwd());
+// Where the brain's shell STARTS — NOT a jail. The shell's working directory
+// persists across commands and roams wherever the user directs it (see
+// makeLocalShell), exactly like a real terminal. DIRECTOR_PROJECT_ROOT is just
+// an optional starting hint; the default is the user's home so the agent can
+// be pointed at any existing project — or told to make a brand-new folder and
+// build there — entirely by voice. The "project root" is a conversation, not a
+// config.
+function startDir(): string {
+  return resolve(process.env.DIRECTOR_PROJECT_ROOT || homedir());
 }
 
 const DEFAULT_CMD_TIMEOUT_MS = 120_000;
+// Sentinel used to recover the shell's working directory after each command so
+// it persists (terminal-like). Unlikely to collide with real output.
+const CWD_SENTINEL = '__DIRCWD__:';
 
 // ─── Catastrophic-command seatbelt ──────────────────────────────────────
 // Full access, minus the handful of commands that could brick the machine
@@ -66,23 +75,34 @@ function isCatastrophic(command: string): boolean {
 
 // ─── Local shell executor (full system access) ──────────────────────────
 
-function execOne(
-  command: string,
-  cwd: string,
-  timeoutMs: number,
-): Promise<{ stdout: string; stderr: string; outcome: { type: 'exit'; exitCode: number | null } | { type: 'timeout' } }> {
+type ExecResult = {
+  stdout: string;
+  stderr: string;
+  outcome: { type: 'exit'; exitCode: number | null } | { type: 'timeout' };
+  /** The shell's working directory AFTER the command (persisted to the next). */
+  cwd: string;
+};
+
+function execOne(command: string, cwd: string, timeoutMs: number): Promise<ExecResult> {
   if (isCatastrophic(command)) {
     console.warn(`[agent-brain] REFUSED catastrophic command: ${command}`);
     return Promise.resolve({
       stdout: '',
       stderr: `Refused: "${command}" matches a catastrophic-command guard and was not executed.`,
       outcome: { type: 'exit', exitCode: 1 },
+      cwd,
     });
   }
-  console.log(`[agent-brain] $ ${command}`);
+  console.log(`[agent-brain] (${cwd}) $ ${command}`);
+  // Persistent-terminal semantics: cd into the current dir, run the command in
+  // the SAME shell (so any `cd` the agent issues persists), then print the
+  // resulting $PWD on a sentinel line we parse + strip. This is what lets the
+  // agent roam anywhere / `mkdir -p new && cd new` and stay there across calls.
+  const q = cwd.replace(/'/g, `'\\''`);
+  const wrapped = `cd '${q}' 2>/dev/null; ${command}\n__rc=$?; printf '\\n${CWD_SENTINEL}%s\\n' "$PWD"; exit $__rc`;
   return new Promise((resolveP) => {
     // Login shell so the agent gets the user's PATH (node, git, pnpm, etc.).
-    const child = spawn('/bin/zsh', ['-lc', command], { cwd });
+    const child = spawn('/bin/zsh', ['-lc', wrapped]);
     let stdout = '';
     let stderr = '';
     let timedOut = false;
@@ -102,26 +122,45 @@ function execOne(
         stdout,
         stderr: stderr + `\n[spawn error] ${err instanceof Error ? err.message : String(err)}`,
         outcome: { type: 'exit', exitCode: 1 },
+        cwd,
       });
     });
     child.on('close', (code) => {
       clearTimeout(timer);
+      // Recover the post-command working directory from the sentinel line and
+      // strip it out of what the model sees.
+      let newCwd = cwd;
+      const idx = stdout.lastIndexOf(CWD_SENTINEL);
+      if (idx !== -1) {
+        const after = stdout.slice(idx + CWD_SENTINEL.length);
+        const nl = after.indexOf('\n');
+        const parsed = (nl === -1 ? after : after.slice(0, nl)).trim();
+        if (parsed) newCwd = parsed;
+        stdout = stdout.slice(0, idx).replace(/\n$/, '');
+      }
       resolveP({
         stdout,
         stderr,
         outcome: timedOut ? { type: 'timeout' } : { type: 'exit', exitCode: code },
+        cwd: newCwd,
       });
     });
   });
 }
 
-function makeLocalShell(cwd: string): Shell {
+function makeLocalShell(startCwd: string): Shell {
+  // The working directory PERSISTS across commands AND across consults — the
+  // brain has one long-lived terminal session. Directing it ("work in ~/dev/x",
+  // "make a new folder") moves this cwd and it stays there.
+  let currentCwd = startCwd;
   return {
     async run(action: ShellAction): Promise<ShellResult> {
       const timeoutMs = action.timeoutMs ?? DEFAULT_CMD_TIMEOUT_MS;
       const output = [];
       for (const command of action.commands) {
-        output.push(await execOne(command, cwd, timeoutMs));
+        const res = await execOne(command, currentCwd, timeoutMs);
+        currentCwd = res.cwd;
+        output.push({ stdout: res.stdout, stderr: res.stderr, outcome: res.outcome });
       }
       return { output };
     },
@@ -131,6 +170,11 @@ function makeLocalShell(cwd: string): Shell {
 // ─── Agent persona ──────────────────────────────────────────────────────
 
 const BRAIN_INSTRUCTIONS = `You are the Director's deep brain — the manager's chair behind a calm voice orchestrator. You have FULL access to the user's machine through a shell tool: read any file, grep, run git / tsc / tests, inspect the project. Use it.
+
+# Working directory — you have a PERSISTENT, ROAMING terminal
+- Your shell keeps its working directory across commands, like a real terminal session. You start in a default directory, but you are NOT confined to it.
+- When the user directs you to work somewhere — "work in ~/dev/foo", "look at my other repo", "make a new folder for this and build it there" — go there: \`cd\` into it (\`mkdir -p <dir> && cd <dir>\` for a new one) and stay. Every later command runs from wherever you last moved to.
+- Do NOT assume a fixed "project". If it's ambiguous where to work, ask, or use the directory the user named. The working location is a conversation, not a config.
 
 # How you work
 - INVESTIGATE before you answer. Don't guess about the codebase — look. Run the commands a senior engineer would: list the tree, read the relevant files, check git status/log, run a typecheck or test when it informs the answer.
@@ -158,7 +202,7 @@ function getAgent(): Agent {
     }
   }
   if (cachedAgent) return cachedAgent;
-  const cwd = projectRoot();
+  const cwd = startDir();
   cachedAgent = new Agent({
     name: 'Director Brain',
     model: BRAIN_MODEL,
